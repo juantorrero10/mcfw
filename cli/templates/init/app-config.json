@@ -1,0 +1,18 @@
+{
+    "app" : 
+    {
+        "source_folder": "src",
+        "entry_point" : "mcfw_start",
+
+        "compilation" : {
+            "c_std": "17",
+            "cflags": []
+        }
+    },
+
+    "host" : 
+    {
+        "addr" : [127, 0, 0, 1],
+        "port" : 8080
+    }
+}
