@@ -1,0 +1,6 @@
+[submodule "submodules/crefl"]
+	path = submodules/crefl
+	url = https://github.com/juantorrero10/crefl.git
+[submodule "submodules/asclib"]
+	path = submodules/asclib
+	url = https://github.com/juantorrero10/asclib.git
