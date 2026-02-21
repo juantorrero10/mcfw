@@ -1,0 +1,7 @@
+{
+    "app" : {
+        "entry_point" : "cbfw_main",
+        "port" : 5656,
+        "addr" : [127, 0, 0, 1]
+    }
+}
