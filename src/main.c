@@ -5,16 +5,17 @@
 #include <crefl/core.h>
 
 int g_hr_enabled = 0;
+int g_ll = 0;
 
 
 
 void parse_args(int argc, const char** argv) {
     char* path = NULL;
-    int eht = 0;
     struct argparse_option options[] = {
         OPT_HELP(),
         OPT_STRING('p', "set-dir", &path, "set working directory", NULL, 0, 0),
-        OPT_BOOLEAN('h', "enable-hot-reloading", &eht, "watch files in source folder for changes and reload the server.", NULL, 0, 0),
+        OPT_BOOLEAN('h', "enable-hot-reloading", &g_hr_enabled, "watch files in source folder for changes and reload the server.", NULL, 0, 0),
+        OPT_INTEGER('l', "log-level", &g_ll, "log-level.", NULL, 0, 0),
         OPT_END()
     };
 
@@ -27,7 +28,6 @@ void parse_args(int argc, const char** argv) {
     if (path) {
         chdir(path);
     }
-    g_hr_enabled = eht;
 }
 
 
