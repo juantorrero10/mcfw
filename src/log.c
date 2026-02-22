@@ -11,5 +11,5 @@ void _get_time_str(char* buff) {
     tmp = localtime( &t );
     
     // using strftime to display time
-    strftime(buff, 64, "%x - %I:%M%p", tmp);
+    strftime(buff, 64, "%x-%I:%M%p", tmp);
 }

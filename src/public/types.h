@@ -31,6 +31,8 @@ typedef struct {
 
 typedef http_response (*route_method)(http_content_type);
 
+typedef void* (*async_fn)(void*);
+
 typedef struct
 {
     char* route;

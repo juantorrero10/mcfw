@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "types.h"
+#include "public/types.h"
 #include "log.h"
 
 extern uint32_t reload_version;
@@ -31,8 +31,13 @@ static void _append_router(router_table* t, router* r) {
 }
 
 void mcfw_register_router(router* r) {
+    if (!r) {
+        mlog_error("mcfw_register_router", "null ptr.");
+        return;
+    }
     if (r->signature != ROUTER_SIGNATURE) {
         mlog_error("mcfw_register_router", "pointer given: '%p' is garbage", r);
+        return;
     }
 
     if (!g_router_table.entries) {

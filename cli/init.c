@@ -4,13 +4,15 @@
 #include <unistd.h>
 #include <string.h>
 
+#include "log.h"
+
 char* app_entry_c = "/**\n * @brief Genrated template entry for the app.\n**/\n"
 "#include <asclib/core.h>\n#include <stdio.h>\n\n\nasync(mcfw_start) {\n\n"
 "   printf(\"app entry!!\\n\");\n"
 "   end_return_void();\n"
 "}\n";
 
-char* gitignore = ".host\nmcfw";
+char* gitignore = ".host\nmcfw\n.mcfw_cache\nlogs";
 
 char* app_config_json = "{\n"
     "\t\"app\" : \n"
@@ -19,7 +21,7 @@ char* app_config_json = "{\n"
         "\t\t\"entry_point\" : \"mcfw_start\",\n"
 
         "\t\t\"compilation\" : {\n"
-            "\t\t\t\"c_std\": 17,\n"
+            "\t\t\t\"c_std\": \"17\",\n"
             "\t\t\t\"cflags\": []\n"
         "\t\t}\n"
     "\t},\n"
@@ -44,4 +46,6 @@ void cmd_init() {
     fclose(f);
     f = fopen("app_config.json", "w");
     fwrite(app_config_json, strlen(app_config_json), 1, f);
+
+    log_okay("Generated minimal workspace.");
 }

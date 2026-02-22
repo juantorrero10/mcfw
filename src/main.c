@@ -1,22 +1,54 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <linux/limits.h>
-#include "vendor/argparse.h"
-#include <crefl/core.h>
+#include <string.h>
+#include <stdlib.h>
+#include <errno.h>
 
-typedef struct {
-    uint32_t hr_enabled;
-    uint32_t log_level;
-} mcfw_arg_config;
+#include <crefl/core.h>
+#include <crefl/serial/err.h>
+#include <crefl/serial/formats.h>
+
+#include "vendor/argparse.h"
+#include "configs.h"
+#include "log.h"
+
+#define SO_LOAD_CREFL "../dependencies/crefl/libcrefl.so"
+
+app_config* g_app_config = NULL;
+uint32_t reload_version = 0;
+
+
+static app_config* load_config();
+static void __free_config();
+static void parse_args(int argc, const char** argv, mcfw_arg_config* c);
+
+void server_start(mcfw_arg_config* c);
+
+
+int main(int argc, const char** argv) {
+
+    mcfw_arg_config c = {0};
+    parse_args(argc, argv, &c);
+    g_app_config = load_config();
+    mlog_info("main", "loaded_config");
+    atexit(__free_config);
+
+    server_start(&c);
+
+    return 0;
+}
 
 
 void parse_args(int argc, const char** argv, mcfw_arg_config* c) {
     char* path = NULL;
     struct argparse_option options[] = {
         OPT_HELP(),
+        OPT_GROUP("General options"),
         OPT_STRING('p', "set-dir", &path, "set working directory", NULL, 0, 0),
         OPT_BOOLEAN('h', "enable-hot-reloading", &c->hr_enabled, "watch files in source folder for changes and reload the server.", NULL, 0, 0),
         OPT_INTEGER('l', "log-level", &c->log_level, "log-level.", NULL, 0, 0),
+        OPT_BOOLEAN('s', "no-ss-handler", &c->no_ss,"disable asclib sigsegv handler", NULL, 0, 0),
         OPT_END()
     };
 
@@ -27,17 +59,52 @@ void parse_args(int argc, const char** argv, mcfw_arg_config* c) {
 
 
     if (path) {
-        chdir(path);
+        if (chdir(path)) {
+            exit(-1);
+        }
+        char p[PATH_MAX];
+        getcwd(p, PATH_MAX);
+        printf("%s%spwd ==> %s%s\n",COLOR_GREEN, STYLE_BOLD, COLOR_RESET,p);
     }
 }
 
-void mcfw_init(mcfw_arg_config* c);
 
+static void __free_config() {
+    refl_generic_destructor(refl_fetch_struct(APP_CONFIG_TYPE), g_app_config);
+}
 
-int main(int argc, const char** argv) {
+static app_config* load_config() {
+    refl_load_metadata(HOST_CREFL);
+    refl_threadlocal_init(1);
 
-    mcfw_arg_config c = {0};
-    parse_args(argc, argv, &c);
-    mcfw_init(&c);
-    return 0;
+    
+    RStruct* config_type = refl_fetch_struct(APP_CONFIG_TYPE);
+    
+    FILE* f = fopen(APP_CONFIG_FILE, "r");
+    if (!f) {
+        mlog_panic("mcfw_load_config", "Couldn't not open config file (%s): %s", APP_CONFIG_FILE, strerror(errno));
+        _exit(1);
+        
+    }
+    fseek(f, 0, SEEK_END);
+    size_t cur = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    void* config_contents = malloc(cur + 1);
+    size_t sz = fread(config_contents, cur, 1, f);
+    if (sz == 0) {
+        mlog_panic("main", "Couldn't read app config %s", strerror(errno));
+    }
+
+    DeserializeResult dr = deserialize_json(config_type, config_contents);
+    if (dr.st != DR_OK) {
+        mlog_panic("mcfw_load_config", "Couldn't parse app configuration '%s'", dr.data.err_str);
+        fclose(f);
+        free(config_contents);
+        _exit(1);
+    }
+    fclose(f);
+    free(config_contents);
+    refl_threadlocal_destroy();
+    return dr.data.buff;
 }

@@ -11,7 +11,7 @@ CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -O2
 
 CFLAGS = $(CFLAGS_HOST_R)
 
-LIBS = -L$(LIBS_DIR) -l:crefl/libcrefl.a
+LIBS = -L$(LIBS_DIR) -l:crefl/libcrefl.a -l:asclib/libasclib.a
 
 
 # --------- OUT FOLDERS ------------------
@@ -45,6 +45,9 @@ YELLOW = \033[0;33m
 
 
 all: $(BIN_HOST)
+all:
+	@mkdir -p $(INCLUDE)/mcfw
+	@cp -r public/* $(INCLUDE)/mcfw
 
 # == COMPILE ==== 
 $(OUT_OBJ)/%.o: $(HOST_SRC)/%.c | $(OUT_OBJ)

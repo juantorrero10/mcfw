@@ -5,6 +5,7 @@
 
 void _get_time_str(char* buff);
 
+
 #define COLOR_RESET          "\033[0m"
 #define STYLE_BOLD          "\033[1m"
 #define STYLE_ITALIC        "\033[3m"
@@ -38,17 +39,17 @@ extern char g_time_buffer[];
 
 #define mlog_warn(place, msg, ...) do{\
     _get_time_str(g_time_buffer);\
-    printf("MCFW: " COLOR_GREY"[%s]" COLOR_YELLOW " WARN" COLOR_WHITE " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" COLOR_YELLOW " WARN" COLOR_WHITE " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
 } while(0)
 
 #define mlog_error(place, msg, ...) do{\
     _get_time_str(g_time_buffer);\
-    printf("MCFW: " COLOR_GREY"[%s]" COLOR_RED " ERROR" COLOR_WHITE " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer,##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" COLOR_RED " ERROR" COLOR_WHITE " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer,##__VA_ARGS__);\
 } while(0)
 
 #define mlog_panic(place, msg, ...) do{\
     _get_time_str(g_time_buffer);\
-    printf("MCFW: " COLOR_GREY"[%s]" STYLE_BOLD"" COLOR_BRIGHT_RED " PANIC" COLOR_RESET " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" STYLE_BOLD"" COLOR_BRIGHT_RED " PANIC" COLOR_RESET " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
 } while(0)
 
 
