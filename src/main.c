@@ -4,18 +4,19 @@
 #include "vendor/argparse.h"
 #include <crefl/core.h>
 
-int g_hr_enabled = 0;
-int g_ll = 0;
+typedef struct {
+    uint32_t hr_enabled;
+    uint32_t log_level;
+} mcfw_arg_config;
 
 
-
-void parse_args(int argc, const char** argv) {
+void parse_args(int argc, const char** argv, mcfw_arg_config* c) {
     char* path = NULL;
     struct argparse_option options[] = {
         OPT_HELP(),
         OPT_STRING('p', "set-dir", &path, "set working directory", NULL, 0, 0),
-        OPT_BOOLEAN('h', "enable-hot-reloading", &g_hr_enabled, "watch files in source folder for changes and reload the server.", NULL, 0, 0),
-        OPT_INTEGER('l', "log-level", &g_ll, "log-level.", NULL, 0, 0),
+        OPT_BOOLEAN('h', "enable-hot-reloading", &c->hr_enabled, "watch files in source folder for changes and reload the server.", NULL, 0, 0),
+        OPT_INTEGER('l', "log-level", &c->log_level, "log-level.", NULL, 0, 0),
         OPT_END()
     };
 
@@ -30,14 +31,13 @@ void parse_args(int argc, const char** argv) {
     }
 }
 
+void mcfw_init(mcfw_arg_config* c);
+
 
 int main(int argc, const char** argv) {
 
-    parse_args(argc, argv);
-    
-
-    char cwd[PATH_MAX];
-    getcwd(cwd, PATH_MAX);
-    printf("cwd: %s\n", cwd);
+    mcfw_arg_config c = {0};
+    parse_args(argc, argv, &c);
+    mcfw_init(&c);
     return 0;
 }

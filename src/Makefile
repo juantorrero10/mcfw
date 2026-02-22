@@ -1,12 +1,18 @@
 TARGET_HOST = .mcfw_server	# Server host binary
 
 
+LIBS_DIR = ../dependencies
+
+
 INCLUDE = ../dependencies
 CC = gcc
-CFLAGS_HOST_D = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -g
-CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -O2
+CFLAGS_HOST_D = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -g  
+CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -O2 
 
 CFLAGS = $(CFLAGS_HOST_R)
+
+LIBS = -L$(LIBS_DIR) -l:crefl/libcrefl.a
+
 
 # --------- OUT FOLDERS ------------------
 OUT_ENV      	= ../app
@@ -18,8 +24,14 @@ HOST_SRC = .
 HOST_C := $(shell find $(HOST_SRC) -name "*.c")
 HOST_O := $(patsubst $(HOST_SRC)/%.c,$(OUT_OBJ)/%.o,$(HOST_C))
 
-DEPS := $(CLI_O:.o=d) $(HOST_O:.o=d)
--include $(DEPS)
+# -------------- CREFL STUFF -------------------
+CRELF_FILE  = $(OUT_ENV_HOST)/host_types.crefl
+PY_GEN      = python3 ../dependencies/crefl/crefl_gen
+PY_INPUT    = $(shell find $(HOST_SRC) -name "*.h") $(shell find $(HOST_SRC) -name "*.c")
+CFLAGS_HOST_D += -DHOST_CREFL=\"$(CRELF_FILE)\"
+CFLAGS_HOST_R += -DHOST_CREFL=\"$(CRELF_FILE)\"
+
+DEPS := $(HOST_O:.o=.d)
 
 BIN_HOST := $(OUT_ENV_HOST)/$(TARGET_HOST)
 
@@ -41,16 +53,21 @@ $(OUT_OBJ)/%.o: $(HOST_SRC)/%.c | $(OUT_OBJ)
 	@echo "$(GREEN)(+) $@.$(WHITE)"
 
 # == LINK ==
-$(BIN_HOST): $(HOST_O) | $(OUT_ENV_HOST)
-	$(CC) $(CFLAGS) -o $@ $^
+$(BIN_HOST): $(CRELF_FILE) $(HOST_O) | $(OUT_ENV_HOST)
+	$(CC) $(CFLAGS) -o $@ $(HOST_O) $(LIBS)
 	@echo "$(PURPLE)(+) $@.$(WHITE)"
 
-$(OUT_ENV_HOST) $(OUT_OBJ):
+$(CRELF_FILE): $(PY_INPUT) | $(OUT_ENV_HOST)
+	@$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
+
+$(OUT_ENV) $(OUT_ENV_HOST) $(OUT_OBJ):
 	@mkdir -p $@ && echo "$(CYAN)(+) $@.$(WHITE)"
 
+-include $(DEPS)
 clean:
 	@rm -f $(BIN_HOST) && echo "$(RED)(-) $(BIN_HOST)."
-	@rm -rf $(OUT_OBJ) && echo "(-) $(OUT_OBJ).$(WHITE)"
+	@rm -rf $(OUT_OBJ) && echo "(-) $(OUT_OBJ)."
+	@rm -f $(CRELF_FILE) && echo "(-) $(CRELF_FILE).$(WHITE)"
 
 run: CFLAGS = $(CFLAGS_HOST_D) 
 run: all

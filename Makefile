@@ -31,6 +31,7 @@ framework:
 
 clean:
 	@$(MAKE) clean -C cli
+	@$(MAKE) clean -C src
 	@rm -rf $(BUILD) && echo "$(RED)(-) $(BUILD).$(WHITE)"
 
 run:
