@@ -25,6 +25,7 @@ void log_cmd(char* file, char** argv) {
     fprintf(f, "[%s] ", file);
 
     for (int i = 0; argv[i] != NULL; i++) {
+        char* a = argv[i]; (void)a;
         fprintf(f, "%s ", argv[i]);
     }
     
@@ -32,10 +33,14 @@ void log_cmd(char* file, char** argv) {
     fclose(f);
 }
 
+/**
+ * @param daemon run in background and return PID.
+ */
 int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
     (void)start_logging;
     int status = 0;
     log_cmd(file, argv);
+
 
 
     pid_t pid = fork();
@@ -67,7 +72,7 @@ int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
 
         return WEXITSTATUS(status);
     }
-    return 0;
+    return pid;
 
 }
 
@@ -75,7 +80,7 @@ int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
  * @brief wait if curr_jobs >= MAX_JOBS
  * @return -1 if we didn't wait,
  * @return 0 if subprocess returned != 0 or exited abnormally,
- * @return 1 if subprocess returned 0.
+ * @return PID if subprocess returned 0.
  */
 int wait_parallel(size_t* n_jobs, size_t max_jobs) {
     if (*n_jobs < max_jobs) return -1;
@@ -86,18 +91,19 @@ int wait_parallel(size_t* n_jobs, size_t max_jobs) {
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         return 0;
     }
-    return 1;
+    return pid;
 }
 
 int wait_one(size_t* n_jobs) {
     int status;
-    if (wait(&status) > 0) {
+    pid_t pid = 0;
+    if ((pid = wait(&status)) > 0) {
         (*n_jobs)--;
         if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
             return 0;
         }
     }
-    return 1;
+    return pid;
 }
 
 void wait_all(size_t* n_jobs) {

@@ -28,8 +28,8 @@ char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-
 
 #define STATIC_AMNT sizeof(static_flags) / sizeof(char*)
 
-char* link_static_flags[] = {NULL, NULL, "-fPIC", "-shared",
-    "-Wl,-Bsymbolic", "-o", TARGET_SO, NULL};
+char* link_static_flags[] = {"-fPIC", "-shared",
+    "-Wl,-Bsymbolic", "-o", TARGET_SO};
 
 #define LINK_STATIC_AMNT sizeof(link_static_flags) / sizeof(char*)
 
@@ -44,6 +44,8 @@ typedef struct {
 } prog_bar;
 
 
+
+
 static void render_progress_bar(prog_bar* b, char* cur_item) {
     // [                             ]
     char* s = "                              ";
@@ -56,7 +58,7 @@ static void render_progress_bar(prog_bar* b, char* cur_item) {
     
 }
 
-static void compile_obj(char* file, char** flags, char_vec* ol) {
+static int compile_obj(char* file, char** flags) {
     flags[2] = file;
     char* out_file = strdup(file);
     char* ptr = out_file;
@@ -70,13 +72,10 @@ static void compile_obj(char* file, char** flags, char_vec* ol) {
     sprintf(buff, "./"CACHE_DIR"/obj/%s", out_file);
     flags[STATIC_AMNT] = buff;
 
-    // Add to list for linking
-    char_push(ol, buff, strlen(buff));
-    char_push(ol, " ", 1);
-
-    run_subprocess(CC, flags, 1, 0, 0);
+    int r = run_subprocess(CC, flags, 1, 0, 0);
     free(out_file);
     flags[STATIC_AMNT] = NULL;
+    return r;
 }
 
 static inline void make_obj_dir() {
@@ -85,16 +84,28 @@ static inline void make_obj_dir() {
         mkdir(CACHE_DIR"/obj", 0700);
 }
 
-static int link_objects(char* obj_list) {
-    link_static_flags[0] = CC;
-    // Trim last space
-    obj_list[strlen(obj_list) - 1] = '\0';
-    link_static_flags[1] = obj_list;
+static int link_objects(char* obj_list, size_t n_objects) {
+    char** link_argv = calloc(sizeof(char*), 1 + n_objects + LINK_STATIC_AMNT + 1);
+    link_argv[0] = CC;
+    char* file = obj_list;
+    for (size_t i = 0; i < n_objects; i++)
+    {
+        link_argv[i + 1] = file;
+        while(*file) 
+        { 
+            file++; 
+        }
+        file++;
+    }
+    memcpy(link_argv + 1 + n_objects, link_static_flags, sizeof(char*) * LINK_STATIC_AMNT);
+    link_argv[1 + n_objects + LINK_STATIC_AMNT] = NULL;
+    
 
     prog_bar p = {.op_name = "Linking", .n_tasks = 1, .completed = 0};
     render_progress_bar(&p, TARGET_SO);
 
-    int r = run_subprocess(CC, link_static_flags, 0, 0, 0);
+    int r = run_subprocess(CC, link_argv, 0, 0, 0);
+    free(link_argv);
     if (r != 0) return 0;
     p.completed++;
     render_progress_bar(&p, "done");
@@ -129,7 +140,7 @@ static char** get_comp_argv(app_config* c) {
 }
 
 
-static void get_manual_obj_list(char_vec* v) {
+static void get_obj_list(char_vec* v) {
     DIR* d = opendir(CACHE_DIR"/obj");
     if (!d) {
         log_fatal("Could not open obj directory: "CACHE_DIR"/obj");
@@ -145,7 +156,8 @@ static void get_manual_obj_list(char_vec* v) {
         if (memcmp(entry->d_name + sz - 2, ".o", 2) != 0) continue;
         char_push(v, CACHE_DIR"/obj/", sizeof(CACHE_DIR) -1 + 5);
         char_push(v, entry->d_name, sz);
-        char_push(v, " ", 1);
+        char_push(v, "\0", 1);
+        v->str_amnt++;
     }
     closedir(d);
 }
@@ -208,9 +220,6 @@ int cmd_build() {
         // Check if output exists because the linkage might've failed
         e = stat(TARGET_SO, &st) == 0;
         if (!e || S_ISDIR(st.st_mode)) {
-            obj_list = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
-            get_manual_obj_list(&obj_list);
-
             // Create a file of the commnds run on this compilation
             close(creat(CACHE_DIR"/last_comp.txt", 0644));
 
@@ -221,8 +230,7 @@ int cmd_build() {
 
     // Create a file of the commnds run on this compilation
     close(creat(CACHE_DIR"/last_comp.txt", 0644));
-
-    obj_list = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
+    
     
     prog_bar p = {.op_name = "Compiling", .n_tasks = n_changed, .completed = 0};
     make_obj_dir();
@@ -233,11 +241,26 @@ int cmd_build() {
     size_t max_jobs = (g_flags.serial_comp)? 1 : sysconf(_SC_NPROCESSORS_ONLN);
     int last_exit_code = 0;
 
+    // For the progress bar.
+    char** processing_files = calloc(sizeof(char*), max_jobs);
+    pid_t* pid_pool = calloc(sizeof(pid_t), max_jobs);
+    memset(pid_pool, 0, sizeof(pid_t) * max_jobs);
+    size_t idx;
+
     // Launch N compilations
     for (size_t i = 0; i < n_changed; i++)
     {
+        // Initial render
         render_progress_bar(&p, b);
-        compile_obj(b, cflags, &obj_list);
+        // Launch compilation job
+        pid_t pid = compile_obj(b, cflags);
+        
+        // Register name and pid on first available spot
+        idx = 0;
+        while(pid_pool[idx] != 0) idx++;
+        pid_pool[idx] = pid;
+        processing_files[idx] = b;
+
         n_jobs++;
         last_exit_code = wait_parallel(&n_jobs, max_jobs); 
         if (!last_exit_code) {
@@ -246,18 +269,38 @@ int cmd_build() {
             ret = 0;
             goto __exit;
         };
-        if (last_exit_code == 1) p.completed++;
+        if (last_exit_code > 0) {
+            p.completed++;
+            // find idx
+            idx = 0;
+            while(pid_pool[idx] != last_exit_code) idx++;
+            pid_pool[idx] = 0;
+
+            // Render one that isn't free
+            while(pid_pool[idx] != 0) idx = (idx + 1) % max_jobs;
+            render_progress_bar(&p, processing_files[idx]);
+        }
         while(*b) b++;
         b++;
     }
     while (n_jobs != 0) {
-        if (!wait_one(&n_jobs)) {
+        pid_t pid;
+        if (!(pid = wait_one(&n_jobs))) {
             wait_all(&n_jobs);
             log_fatal("One of the compilations failed.");
             ret = 0;
             goto __exit;   
         }
+        if (pid < 0) continue;
+        
+        // Find our spot
+        idx = 0;
+        while(pid_pool[idx] != pid) idx++;
+        pid_pool[idx] = 0;
+        // Render one that isn't free
+        while(pid_pool[idx] != 0) idx = (idx + 1) % max_jobs;
         p.completed++;
+        render_progress_bar(&p, processing_files[idx]);
     }
 
     // if compilation succeds, save an file to mark the timestamp of last comp
@@ -266,7 +309,9 @@ int cmd_build() {
 
     // Link
 __link:
-    if (!link_objects(obj_list.s)) {
+    obj_list = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
+    get_obj_list(&obj_list);
+    if (!link_objects(obj_list.s, obj_list.str_amnt)) {
         log_fatal("Linking failed.");
         ret = 0;
         goto __exit;
@@ -276,10 +321,15 @@ __link:
 
 __exit:
     if (cflags) {
-        for (size_t i = 3; i < STATIC_AMNT + c->app.compilation.cflags.size; i++) free(cflags[i]);
+        for (size_t i = 3; i < STATIC_AMNT + c->app.compilation.cflags.size + 1; i++) 
+        { 
+            free(cflags[i]); 
+        }
         free(cflags);
     }
     free(obj_list.s);
+    free(pid_pool);
+    free(processing_files);
 __exit_no_files:
     free((void*)files);
     refl_threadlocal_destroy();

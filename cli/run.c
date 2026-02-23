@@ -52,7 +52,8 @@ int cmd_run() {
     
     if (!cmd_build()) return 0;
 
-    log_running(MCFW_BINARY);
+    if (!g_flags.daemon)
+        log_running(MCFW_BINARY);
 
     char* argv[] = {MCFW_BINARY, NULL, NULL, NULL};
     argv[1] = "--log-level";
@@ -62,6 +63,10 @@ int cmd_run() {
 
     signal(SIGINT, SIG_IGN);
     int ret = run_subprocess(MCFW_BINARY, argv, g_flags.daemon, g_flags.quiet, g_flags.create_log);
+    if (g_flags.daemon) {
+        log_running(STYLE_ITALIC""MCFW_BINARY""COLOR_RESET" ["STYLE_BOLD"%d"COLOR_RESET""COLOR_WHITE"]"COLOR_RESET, ret);
+        return 0;
+    }
     if (ret != 0) {
         if (ret > TERM_BY_SIGNAL) {
             REnum* e = refl_fetch_enum("signals");

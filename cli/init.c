@@ -12,7 +12,7 @@ char* app_entry_c = "/**\n * @brief Genrated template entry for the app.\n**/\n"
 "   end_return_void();\n"
 "}\n";
 
-char* gitignore = ".host\nmcfw\n.mcfw_cache\nlogs";
+char* gitignore = ".host\nmcfw\n._ccomp_cache__\nlogs";
 
 char* app_config_json = "{\n"
     "\t\"app\" : \n"

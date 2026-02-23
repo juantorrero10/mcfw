@@ -38,7 +38,7 @@ static inline int is_a_source_file(char* buff, size_t sz) {
 char_vec lcl_charvec = {0};
 
 void char_push(char_vec* v, char* s, size_t sz) {
-    if (v->cur + sz >= v->capacity) {
+    if (v->cur + sz + 1>= v->capacity) {
         v->s = realloc(v->s, 2 * v->capacity);
         v->capacity *= 2;
     }
