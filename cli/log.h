@@ -27,7 +27,7 @@
 #define COLOR_BRIGHT_CYAN    "\033[96m"
 #define COLOR_BRIGHT_WHITE   "\033[97m"
 
-#define log_fatal(msg, ...) fprintf(stderr, COLOR_RED"" STYLE_BOLD "fatal: " COLOR_RESET "" COLOR_WHITE "" msg "" COLOR_RESET "\r\n", ##__VA_ARGS__)
+#define log_fatal(msg, ...) fprintf(stderr, COLOR_RED"" STYLE_BOLD "fatal: " COLOR_RESET "" COLOR_WHITE "" msg "" COLOR_RESET "\033[K\r\n", ##__VA_ARGS__)
 #define log_okay(msg, ...) fprintf(stdout, COLOR_BRIGHT_GREEN"" STYLE_BOLD "done: " COLOR_RESET "" msg "\033[K\r\n", ##__VA_ARGS__)
 #define log_warn(msg, ...) fprintf(stderr, COLOR_YELLOW"warn: " COLOR_RESET "" msg "\r\n", ##__VA_ARGS__)
 #define log_inprogress(operation, msg, ...) fprintf(stdout, COLOR_CYAN"" STYLE_BOLD "%s: " COLOR_RESET "" msg "\033[K\r",operation,  ##__VA_ARGS__); fflush(stdout)

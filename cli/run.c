@@ -48,7 +48,7 @@ REFLECT(enum) {
 
 int cmd_run() {
 
-    close(creat(CACHE_DIR"/last_comp.cmd", 0644));
+    close(creat(CACHE_DIR"/last_comp.txt", 0644));
     
     if (!cmd_build()) return 0;
 

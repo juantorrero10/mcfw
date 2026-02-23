@@ -21,7 +21,7 @@ static void start_logging() {
 }
 
 void log_cmd(char* file, char** argv) {
-    FILE* f = fopen(CACHE_DIR"/last_comp.cmd", "a");
+    FILE* f = fopen(CACHE_DIR"/last_comp.txt", "a");
     fprintf(f, "[%s] ", file);
 
     for (int i = 0; argv[i] != NULL; i++) {
@@ -43,6 +43,7 @@ int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
 
     if (!pid) {
         signal(SIGINT, SIG_DFL);
+
         if (quiet && !log) {
             int devnull = open("/dev/null", O_WRONLY, 0);
             dup2(devnull, STDOUT_FILENO);
@@ -68,5 +69,42 @@ int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
     }
     return 0;
 
+}
+
+/**
+ * @brief wait if curr_jobs >= MAX_JOBS
+ * @return -1 if we didn't wait,
+ * @return 0 if subprocess returned != 0 or exited abnormally,
+ * @return 1 if subprocess returned 0.
+ */
+int wait_parallel(size_t* n_jobs, size_t max_jobs) {
+    if (*n_jobs < max_jobs) return -1;
+    int status;
+    pid_t pid = wait(&status);
+    if (pid <= 0) return 1;
+    (*n_jobs)--;
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        return 0;
+    }
+    return 1;
+}
+
+int wait_one(size_t* n_jobs) {
+    int status;
+    if (wait(&status) > 0) {
+        (*n_jobs)--;
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void wait_all(size_t* n_jobs) {
+    while(*n_jobs > 0) { 
+        if (wait(NULL) > 0) {
+            (*n_jobs)--;
+        }    
+    }
 }
 

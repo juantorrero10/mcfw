@@ -11,9 +11,10 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include "cli.h"
-
+#include "log.h"
 
 
 static inline void make_cache() {
@@ -22,17 +23,6 @@ static inline void make_cache() {
         mkdir(CACHE_DIR, 0700);
 }
 
-static inline uint32_t fnv1a(const char* name, size_t sz) {
-    uint32_t h = 0x811c9dc5;
-    for (size_t i = 0; i < sz; i++)
-    {
-        uint8_t b = name[i];
-        h ^= b;
-        h = (h * 0x01000193) & 0xffffffff;
-    }
-    
-    return h;
-}
 
 static inline int __is_dir(const char* path) {
     struct stat st;
@@ -40,19 +30,8 @@ static inline int __is_dir(const char* path) {
     return S_ISDIR(st.st_mode);
 }
 
-static inline uint64_t checksumfile(const char* file) {
-    FILE* f = fopen(file, "rb");
-    if (!f) return 0;
-    uint64_t hash = 5381;
-    int c;
-    while ((c = fgetc(f)) != EOF) {
-        hash = ((hash << 5) + hash) + (uint8_t)c;
-    }
-    fclose(f);
-    return hash;
-}
 
-static inline int valid_extension(char* buff, size_t sz) {
+static inline int is_a_source_file(char* buff, size_t sz) {
     return (!memcmp(buff + sz - 2, ".c", 2));
 }
 
@@ -65,28 +44,77 @@ void char_push(char_vec* v, char* s, size_t sz) {
     }
     memcpy(v->s + v->cur, s, sz);
     v->cur += sz;
+    v->s[v->cur] = '\0';
 }
 
-int checksum_matches(char* cache_file_name, char* src_file) {
-    char p[4096];
-    sprintf(p, "%s/%s", CACHE_DIR, cache_file_name);
-    uint64_t src = checksumfile(src_file);
+static inline void get_dep_name(char* source_path, size_t sz) {
+    char* c = NULL;
+    // Chande / for _
+    while((c = strchr(source_path, '/'))) {
+        *c = '_';
+    }
+    // Change .c for .d
+    source_path[sz - 1] = 'd';
+}
 
-    int fd = open(p, O_RDONLY);
-    if (fd <= 0) goto __set_hash;
+#define MAX_LINE 1024
 
-    uint64_t cached = 0;
+static int deps_have_changed(char* dot_d_path) {
+    FILE* f = fopen(dot_d_path, "r");
+    // If no .d file compile again.
+    if (!f) return 1;
+    char line[MAX_LINE];
+    int seen_backslash = 0;
+    int nl = 0;
+    struct stat st;
+    int exists = 0;
 
-    read(fd, &cached, 8);
-    close(fd);
-    if (src == cached) return 1;
+__init:
+    while((fgets(line, MAX_LINE, f))) {
+        seen_backslash = 0;
+        nl = 0;
+        char* ptr = line;
 
-__set_hash:
-    fd = open(p, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-    write(fd, &src, 8);
-    close(fd);
+        if ((ptr = strchr(line, ':'))) {
+            ptr++;
+        } else {
+            ptr = line;
+        }
+        
+__read_tok:   
+        while(*ptr == ' ') ptr++;
+        char* start_tok = ptr;
+        while(*ptr) {
+            switch (*ptr) {
+            case '\t':
+            case ' ':break;
+            case '\\':seen_backslash = 1; ptr++; continue;
+            case '\n':
+                nl = 1;
+                break;
+            default:
+                ptr++;
+                continue;
+            }
+            break;
+        }
+        *ptr = '\0';
+        exists = stat(start_tok, &st) == 0;
+        if (nl) {
+            if (seen_backslash) goto __init;
+            else break;
+        }
+        if (!exists || st.st_mtime > mark_modified_timestamp || mark_modified_timestamp == -1) {
+            return 1;
+        }
+        ptr++;
+        start_tok = ptr;
+        goto __read_tok;
+    }    
+
     return 0;
 }
+
 
 int has_changed(const char *fpath, const struct stat *sb, 
     int tflag, struct FTW *ftwbuf
@@ -94,13 +122,23 @@ int has_changed(const char *fpath, const struct stat *sb,
     (void)sb; (void)ftwbuf;
     if (tflag == FTW_F) {
         size_t sz = strlen(fpath);
-        if (valid_extension((char*)fpath, sz)) {
-            uint32_t hash_name = fnv1a(fpath, sz);
-            char buff[9];
-            sprintf(buff, "%08x", hash_name);
-            if (!checksum_matches(buff, (char*)fpath) || g_flags.force_compile) {
+        if (is_a_source_file((char*)fpath, sz)) {
+            struct stat st;
+            int e = stat(fpath, &st) == 0;
+            // First check: recompile if timestamp is greater
+            if (!e || mark_modified_timestamp == -1 || st.st_mtime > mark_modified_timestamp) {
                 char_push(&lcl_charvec, (char*)fpath, sz + 1);
                 lcl_charvec.str_amnt += 1;
+            } else {
+                // Check for .d file
+                char buff[PATH_MAX];
+                strcpy(buff, CACHE_DIR"/obj/");
+                strcat(buff, fpath);
+                get_dep_name(buff + sizeof(CACHE_DIR) + sizeof("/obj/") - 2, sz);
+                if (deps_have_changed(buff)) {
+                    char_push(&lcl_charvec, (char*)fpath, sz + 1);
+                    lcl_charvec.str_amnt += 1;
+                }
             }
         }
     }
@@ -120,16 +158,14 @@ char** get_changed_files(char* src_folder, size_t* out_n_files) {
     return ret;
 }
 
-void delete_cache_err(char** files, size_t n_files) {
-    char* b = (char*)files;
-    char buff[PATH_MAX];
-    for (size_t i = 0; i < n_files; i++)
-    {
-        size_t sz = strlen(b);
-        uint32_t hash_name = fnv1a(b, sz);
-        snprintf(buff, PATH_MAX, CACHE_DIR"/%08x", hash_name);
-        remove(buff);
-        b += sz + 1;
-    }
-    
+int remove_cache(const char *fpath, const struct stat *sb, 
+    int tflag, struct FTW *ftwbuf
+) {
+    (void)ftwbuf; (void)sb; (void)tflag;
+    int rv = remove(fpath);
+    if (rv) log_fatal("Couldn't remove cache folder: %s", strerror(errno));
+    return rv;
+}
+int cmd_clean() {
+    return nftw(CACHE_DIR, remove_cache, 20, FTW_PHYS | FTW_DEPTH);
 }

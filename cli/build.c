@@ -14,14 +14,17 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <time.h>
 
 
 #define CC "gcc"
 #define DEPENDENCIES_FOLDER "../dependencies"
 #define ASCLIB_STATIC "asclib/libasclib.a"
 #define TARGET_SO     ".host/libapp.so"
+#define COMP_MARK     CACHE_DIR"/comp_mark"
+
 //                                              ⌄⌄ replaced by config
-char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-m64", "-fPIC", "-o"};
+char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-m64", "-MMD", "-MP", "-fPIC", "-o"};
 
 #define STATIC_AMNT sizeof(static_flags) / sizeof(char*)
 
@@ -29,6 +32,8 @@ char* link_static_flags[] = {NULL, NULL, "-fPIC", "-shared",
     "-Wl,-Bsymbolic", "-o", TARGET_SO, NULL};
 
 #define LINK_STATIC_AMNT sizeof(link_static_flags) / sizeof(char*)
+
+long mark_modified_timestamp = -1;
 
 
 
@@ -51,7 +56,7 @@ static void render_progress_bar(prog_bar* b, char* cur_item) {
     
 }
 
-static int compile_obj(char* file, prog_bar* p, char** flags, char_vec* ol) {
+static void compile_obj(char* file, char** flags, char_vec* ol) {
     flags[2] = file;
     char* out_file = strdup(file);
     char* ptr = out_file;
@@ -61,7 +66,6 @@ static int compile_obj(char* file, prog_bar* p, char** flags, char_vec* ol) {
     size_t sz = strlen(out_file);
     out_file[sz - 1] = 'o';
 
-    render_progress_bar(p, file);
     char buff[4096];
     sprintf(buff, "./"CACHE_DIR"/obj/%s", out_file);
     flags[STATIC_AMNT] = buff;
@@ -70,12 +74,9 @@ static int compile_obj(char* file, prog_bar* p, char** flags, char_vec* ol) {
     char_push(ol, buff, strlen(buff));
     char_push(ol, " ", 1);
 
-    int ret = run_subprocess(CC, flags, 0, 0, 0);
+    run_subprocess(CC, flags, 1, 0, 0);
     free(out_file);
     flags[STATIC_AMNT] = NULL;
-    if (ret != 0) return 0;
-    p->completed++;
-    return 1;
 }
 
 static inline void make_obj_dir() {
@@ -150,6 +151,8 @@ static void get_manual_obj_list(char_vec* v) {
 }
 
 
+
+
 int cmd_build() {
     refl_load_metadata(CLI_CREFL);
     refl_threadlocal_init(1);
@@ -166,6 +169,14 @@ int cmd_build() {
     if (!e || !S_ISDIR(st.st_mode)) {
         log_fatal("Dependencies folder not present, make sure the framework is compiled correctly.");
         _Exit(1);
+    }
+
+    
+
+    // Get timestamp of .so file, (-1) if not created
+    e = stat(COMP_MARK, &st) == 0;
+    if (e && !S_ISDIR(st.st_mode)) {
+        mark_modified_timestamp = st.st_mtime;
     }
 
     fseek(f, 0, SEEK_END);
@@ -199,11 +210,17 @@ int cmd_build() {
         if (!e || S_ISDIR(st.st_mode)) {
             obj_list = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
             get_manual_obj_list(&obj_list);
+
+            // Create a file of the commnds run on this compilation
+            close(creat(CACHE_DIR"/last_comp.txt", 0644));
+
             goto __link;
         }
         goto __exit_no_files;
     }
-    close(creat(CACHE_DIR"/last_comp.cmd", 0644));
+
+    // Create a file of the commnds run on this compilation
+    close(creat(CACHE_DIR"/last_comp.txt", 0644));
 
     obj_list = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
     
@@ -211,20 +228,41 @@ int cmd_build() {
     make_obj_dir();
     char* b = (char*)files;
     cflags = get_comp_argv(c);
+    size_t n_jobs = 0;
+    // As many jobs as CPU cores
+    size_t max_jobs = (g_flags.serial_comp)? 1 : sysconf(_SC_NPROCESSORS_ONLN);
+    int last_exit_code = 0;
 
+    // Launch N compilations
     for (size_t i = 0; i < n_changed; i++)
     {
-        if (!compile_obj(b, &p, cflags, &obj_list)) {
+        render_progress_bar(&p, b);
+        compile_obj(b, cflags, &obj_list);
+        n_jobs++;
+        last_exit_code = wait_parallel(&n_jobs, max_jobs); 
+        if (!last_exit_code) {
+            wait_all(&n_jobs);
             log_fatal("One of the compilations failed.");
-            delete_cache_err(files, n_changed);
             ret = 0;
             goto __exit;
         };
+        if (last_exit_code == 1) p.completed++;
         while(*b) b++;
         b++;
     }
-    log_okay("Compilation succeded.");
+    while (n_jobs != 0) {
+        if (!wait_one(&n_jobs)) {
+            wait_all(&n_jobs);
+            log_fatal("One of the compilations failed.");
+            ret = 0;
+            goto __exit;   
+        }
+        p.completed++;
+    }
 
+    // if compilation succeds, save an file to mark the timestamp of last comp
+    close(creat(COMP_MARK, 0644));
+    log_okay("Compilation succeded.");
 
     // Link
 __link:
@@ -246,8 +284,4 @@ __exit_no_files:
     free((void*)files);
     refl_threadlocal_destroy();
     return ret;
-}
-
-int cmd_clean() {
-    return 0;
 }

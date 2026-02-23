@@ -48,9 +48,11 @@ int main(int argc, const char** argv) {
     
     struct argparse_option options[] = {
         OPT_HELP(),
-        OPT_GROUP("General options."),
+        OPT_GROUP("Compilation options."),
+        OPT_BOOLEAN('f', "force-compile", &g_flags.force_compile, "Ignore cached obj files, recompile everything", NULL, 0, 0),
+        OPT_BOOLEAN('s', "serial-compilation", &g_flags.serial_comp ,"Do not parallelize the compilation.", NULL, 0, 0),
+        OPT_GROUP("Runtime options."),
         OPT_INTEGER('l', "log-level", &g_flags.log_level, "0 = INFO, 1 = WARNINGS, 2 = ERRORS AND PANICS", NULL, 0, 0),
-        OPT_BOOLEAN('f', "force-compile", &g_flags.force_compile, "Compile all files regardless if they haven't changed", NULL, 0, 0),
         OPT_BOOLEAN('q', "quiet", &g_flags.quiet, "Run without output.", NULL, 0, 0),
         OPT_BOOLEAN('d', "daemon", &g_flags.daemon, "Run in background", NULL, 0, 0),
         OPT_END(),

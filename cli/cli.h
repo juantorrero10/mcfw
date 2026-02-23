@@ -18,14 +18,17 @@ typedef struct {
     size_t str_amnt;
 } char_vec;
 
+extern long mark_modified_timestamp;
 
 void char_push(char_vec* v, char* s, size_t sz);
 void cache_file_checksums(char* src_folder, int rec_lvl);
 char** get_changed_files(char* src_folder, size_t* out_n_files);
-void delete_cache_err(char** files, size_t n_files);
 
 #define TERM_BY_SIGNAL (2 << 16)
 int run_subprocess(char* file, char** argv, int daemon, int quiet, int log);
+int wait_parallel(size_t* n_jobs, size_t max_jobs);
+void wait_all(size_t* n_jobs);
+int wait_one(size_t* n_jobs);
 
 #include <stdint.h>
 #include <crefl/types.h>
@@ -58,6 +61,7 @@ typedef struct {
     uint32_t quiet;
     uint32_t daemon;
     uint32_t create_log;
+    uint32_t serial_comp;
 } arg_flags;
 extern arg_flags g_flags;
 
