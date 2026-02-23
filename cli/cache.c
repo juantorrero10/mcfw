@@ -56,17 +56,9 @@ static inline int valid_extension(char* buff, size_t sz) {
     return (!memcmp(buff + sz - 2, ".c", 2));
 }
 
-
-typedef struct {
-    char* s;
-    size_t cur;
-    size_t capacity;
-    size_t str_amnt;
-} char_vec;
-
 char_vec lcl_charvec = {0};
 
-static void char_push(char_vec* v, char* s, size_t sz) {
+void char_push(char_vec* v, char* s, size_t sz) {
     if (v->cur + sz >= v->capacity) {
         v->s = realloc(v->s, 2 * v->capacity);
         v->capacity *= 2;
@@ -86,11 +78,13 @@ int checksum_matches(char* cache_file_name, char* src_file) {
     uint64_t cached = 0;
 
     read(fd, &cached, 8);
+    close(fd);
     if (src == cached) return 1;
 
 __set_hash:
     fd = open(p, O_CREAT | O_WRONLY | O_TRUNC, 0644);
     write(fd, &src, 8);
+    close(fd);
     return 0;
 }
 
@@ -104,7 +98,7 @@ int has_changed(const char *fpath, const struct stat *sb,
             uint32_t hash_name = fnv1a(fpath, sz);
             char buff[9];
             sprintf(buff, "%08x", hash_name);
-            if (!checksum_matches(buff, (char*)fpath) || force_cache) {
+            if (!checksum_matches(buff, (char*)fpath) || g_flags.force_compile) {
                 char_push(&lcl_charvec, (char*)fpath, sz + 1);
                 lcl_charvec.str_amnt += 1;
             }
@@ -127,7 +121,7 @@ char** get_changed_files(char* src_folder, size_t* out_n_files) {
 }
 
 void delete_cache_err(char** files, size_t n_files) {
-    char* b = *files;
+    char* b = (char*)files;
     char buff[PATH_MAX];
     for (size_t i = 0; i < n_files; i++)
     {

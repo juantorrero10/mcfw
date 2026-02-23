@@ -2,6 +2,7 @@
 #define LOG_H_
 
 #include <stdio.h>
+#include "configs.h"
 
 void _get_time_str(char* buff);
 
@@ -30,14 +31,21 @@ void _get_time_str(char* buff);
 #define COLOR_BRIGHT_CYAN    "\033[96m"
 #define COLOR_BRIGHT_WHITE   "\033[97m"
 
+#define LOG_LEVEL_INFO 0
+#define LOG_LEVEL_WARN 1
+#define LOG_LEVEL_ERROR 2
+
 extern char g_time_buffer[];
+extern mcfw_arg_config g_args;
 
 #define mlog_info(place, msg, ...) do{\
+    if (g_args.log_level > LOG_LEVEL_INFO) break;\
     _get_time_str(g_time_buffer);\
     printf("mcfw: " COLOR_GREY"[%s]" COLOR_CYAN " INFO" COLOR_WHITE " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
 } while(0)
 
 #define mlog_warn(place, msg, ...) do{\
+    if (g_args.log_level > LOG_LEVEL_WARN) break;\
     _get_time_str(g_time_buffer);\
     printf("mcfw: " COLOR_GREY"[%s]" COLOR_YELLOW " WARN" COLOR_WHITE " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
 } while(0)

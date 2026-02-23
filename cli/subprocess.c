@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 
 #include "cli.h"
@@ -22,7 +23,7 @@ static void start_logging() {
 void log_cmd(char* file, char** argv) {
     FILE* f = fopen(CACHE_DIR"/last_comp.cmd", "a");
     fprintf(f, "[%s] ", file);
-    
+
     for (int i = 0; argv[i] != NULL; i++) {
         fprintf(f, "%s ", argv[i]);
     }
@@ -41,18 +42,23 @@ int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
     assert(pid != -1);
 
     if (!pid) {
-
+        signal(SIGINT, SIG_DFL);
         if (quiet && !log) {
             int devnull = open("/dev/null", O_WRONLY, 0);
-            dup2(STDOUT_FILENO, devnull);
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
         }
         execvp(file, argv);
         assert(0);
     }
 
     if (!daemon) {
-        tcsetpgrp(STDIN_FILENO, pid);
-        waitpid(pid, &status, WUNTRACED);
+        if (isatty(STDIN_FILENO)) tcsetpgrp(STDIN_FILENO, pid);
+        
+        waitpid(pid, &status, 0);
+
+        if (isatty(STDIN_FILENO)) tcsetpgrp(STDIN_FILENO, getpgrp());
         return WEXITSTATUS(status);
     }
     return 0;

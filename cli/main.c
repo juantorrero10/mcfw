@@ -10,9 +10,10 @@
 
 char cache_string[4096];
 
-int force_cache = 0;
+app_config* g_app_config = NULL;
+arg_flags g_flags = {0};
 
-typedef void(*command)(void);
+typedef int(*command)(void);
 
 static command load_command_ptr(int argc, const char** argv, int* help) {
     if (argc < 2) {
@@ -24,6 +25,8 @@ static command load_command_ptr(int argc, const char** argv, int* help) {
         return cmd_init;
     } else if (!strcmp(cmd, "build")) {
         return cmd_build;
+    } else if (!strcmp(cmd, "run")){
+        return cmd_run;
     } else if (!strcmp(cmd, "--help")){
         *help = 1;
         return NULL;
@@ -34,18 +37,19 @@ static command load_command_ptr(int argc, const char** argv, int* help) {
 }
 
 int main(int argc, const char** argv) {
-    int ll;
 
     // Command
-    int help;
+    int help = 0;
     command fptr = load_command_ptr(argc, argv, &help);
     if (!fptr && !help) return 1;
     
     struct argparse_option options[] = {
         OPT_HELP(),
         OPT_GROUP("General options."),
-        OPT_INTEGER('l', "log-level", &ll, "0 = INFO, 1 = WARNINGS, 2 = ERRORS AND PANICS", NULL, 0, 0),
-        OPT_BOOLEAN('f', "force-compile", &force_cache, "Compile all files regardless if they haven't changed", NULL, 0, 0),
+        OPT_INTEGER('l', "log-level", &g_flags.log_level, "0 = INFO, 1 = WARNINGS, 2 = ERRORS AND PANICS", NULL, 0, 0),
+        OPT_BOOLEAN('f', "force-compile", &g_flags.force_compile, "Compile all files regardless if they haven't changed", NULL, 0, 0),
+        OPT_BOOLEAN('q', "quiet", &g_flags.quiet, "Run without output.", NULL, 0, 0),
+        OPT_BOOLEAN('d', "daemon", &g_flags.daemon, "Run in background", NULL, 0, 0),
         OPT_END(),
     };
 
@@ -58,11 +62,8 @@ int main(int argc, const char** argv) {
     
     argparse_parse(&a, (help)? argc : argc - 1, (help)? argv : argv + 1);
 
-    refl_load_metadata(CLI_CREFL);
-    refl_threadlocal_init(0);
-
     fptr();
-    
+    if (!g_app_config) refl_generic_destructor(refl_fetch_struct(APP_CONFIG_TYPE), g_app_config);
 
     return 0;
 }

@@ -34,7 +34,7 @@ char* app_config_json = "{\n"
 "}";
 
 
-void cmd_init() {
+int cmd_init() {
     FILE* f = fopen(".gitignore", "w");
     fwrite(gitignore, strlen(gitignore), 1, f);
     fclose(f);
@@ -48,4 +48,5 @@ void cmd_init() {
     fwrite(app_config_json, strlen(app_config_json), 1, f);
 
     log_okay("Generated minimal workspace.");
+    return 1;
 }

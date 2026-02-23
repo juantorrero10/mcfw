@@ -15,6 +15,7 @@
 
 #define SO_LOAD_CREFL "../dependencies/crefl/libcrefl.so"
 
+mcfw_arg_config g_args = {0};
 app_config* g_app_config = NULL;
 uint32_t reload_version = 0;
 
@@ -30,6 +31,7 @@ int main(int argc, const char** argv) {
 
     mcfw_arg_config c = {0};
     parse_args(argc, argv, &c);
+    g_args = c;
     g_app_config = load_config();
     mlog_info("main", "loaded_config");
     atexit(__free_config);
@@ -63,7 +65,7 @@ void parse_args(int argc, const char** argv, mcfw_arg_config* c) {
             exit(-1);
         }
         char p[PATH_MAX];
-        getcwd(p, PATH_MAX);
+        char* shut_up_compiler = getcwd(p, PATH_MAX); (void)shut_up_compiler;
         printf("%s%spwd ==> %s%s\n",COLOR_GREEN, STYLE_BOLD, COLOR_RESET,p);
     }
 }

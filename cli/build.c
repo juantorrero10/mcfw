@@ -12,19 +12,32 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <fcntl.h>
 
 
 #define CC "gcc"
 #define DEPENDENCIES_FOLDER "../dependencies"
-char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-L"DEPENDENCIES_FOLDER, "-fPIC", "-shared", "-o"}; 
-#define STATIC_AMNT 9
+#define ASCLIB_STATIC "asclib/libasclib.a"
+#define TARGET_SO     ".host/libapp.so"
+//                                              ⌄⌄ replaced by config
+char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-fPIC", "-shared", "-o"};
+
+#define STATIC_AMNT sizeof(static_flags) / sizeof(char*)
+
+char* link_static_flags[] = {NULL, NULL, "-L.host", "-l:.mcfw_server",
+    "-Wl,-rpath,\'$ORIGIN/\'"DEPENDENCIES_FOLDER, "-Wl,--as-needed", "-rdynamic", "-shared", "-o", TARGET_SO, NULL};
+
+#define LINK_STATIC_AMNT sizeof(link_static_flags) / sizeof(char*)
+
+
 
 typedef struct {
     char* op_name;
     size_t n_tasks;
     size_t completed;
 } prog_bar;
+
 
 static void render_progress_bar(prog_bar* b, char* cur_item) {
     // [                             ]
@@ -38,7 +51,7 @@ static void render_progress_bar(prog_bar* b, char* cur_item) {
     
 }
 
-static int compile_obj(char* file, prog_bar* p, char** flags) {
+static int compile_obj(char* file, prog_bar* p, char** flags, char_vec* ol) {
     flags[2] = file;
     char* out_file = strdup(file);
     char* ptr = out_file;
@@ -52,6 +65,10 @@ static int compile_obj(char* file, prog_bar* p, char** flags) {
     char buff[4096];
     sprintf(buff, "./"CACHE_DIR"/obj/%s", out_file);
     flags[STATIC_AMNT] = buff;
+
+    // Add to list for linking
+    char_push(ol, buff, strlen(buff));
+    char_push(ol, " ", 1);
 
     int ret = run_subprocess(CC, flags, 0, 0, 0);
     free(out_file);
@@ -67,9 +84,26 @@ static inline void make_obj_dir() {
         mkdir(CACHE_DIR"/obj", 0700);
 }
 
+static int link_objects(char* obj_list) {
+    link_static_flags[0] = CC;
+    // Trim last space
+    obj_list[strlen(obj_list) - 1] = '\0';
+    link_static_flags[1] = obj_list;
+
+    prog_bar p = {.op_name = "Linking", .n_tasks = 1, .completed = 0};
+    render_progress_bar(&p, TARGET_SO);
+
+    int r = run_subprocess(CC, link_static_flags, 0, 0, 0);
+    if (r != 0) return 0;
+    p.completed++;
+    render_progress_bar(&p, "done");
+    return 1;
+}
+
+
 
 static char** get_comp_argv(app_config* c) {
-    size_t n = STATIC_AMNT + c->app.compilation.cflags.size;
+    size_t n = STATIC_AMNT + c->app.compilation.cflags.size + 1;
     char** ret = calloc(sizeof(char*), n + 1);
     // idx 0 is the compiler
     ret[0] = CC;
@@ -87,14 +121,39 @@ static char** get_comp_argv(app_config* c) {
             ret[i] = strdup(static_flags[i]);
         } else if (i == STATIC_AMNT) continue;
         else if (c->app.compilation.cflags.size > 0)
-            ret[i] = strdup(((char**)c->app.compilation.cflags.array)[i - STATIC_AMNT]);
+            ret[i] = strdup(((char**)c->app.compilation.cflags.array)[i - STATIC_AMNT - 1]);
     }
     ret[n] = NULL;
     return ret;
 }
 
+/*
+static void get_manual_obj_list(char_vec* v) {
+    DIR* d = opendir(CACHE_DIR"/obj");
+    if (!d) {
+        log_fatal("Could not open obj directory: "CACHE_DIR"/obj");
+        _Exit(1);
+    }
+    struct dirent* entry;
+    while((entry = readdir(d)) != NULL) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
+    
+        size_t sz = strlen(entry->d_name);
+        // Wrong extension
+        if (memcmp(entry->d_name + sz - 2, ".o", 2) != 0) continue;
+        char_push(v, CACHE_DIR"/obj/", sizeof(CACHE_DIR) -1 + 5);
+        char_push(v, entry->d_name, sz);
+        char_push(v, " ", 1);
+    }
+    closedir(d);
+}*/
 
-void cmd_build() {
+
+int cmd_build() {
+    refl_load_metadata(CLI_CREFL);
+    refl_threadlocal_init(1);
+    int ret = 1;
     RStruct* config_type = refl_fetch_struct(APP_CONFIG_TYPE);
     FILE* f = fopen(APP_CONFIG_FILE, "r");
     if (!f) {
@@ -124,39 +183,58 @@ void cmd_build() {
     }
 
     app_config* c = dr.data.buff;
-    //cache_file_checksums((char*)c->app.source_folder, 0);
+    g_app_config = c;
+
+    // Compilation process
     size_t n_changed;
+    char** cflags = NULL;
+
     char** files = get_changed_files((char*)c->app.source_folder, &n_changed);
+
     if (!n_changed) {
-        log_okay("No source files had changed since last compilation.");
+        log_okay("Nothing to be done.");
         goto __exit_no_files;
     }
-    creat(CACHE_DIR"/last_comp.cmd", 0644);
+    close(creat(CACHE_DIR"/last_comp.cmd", 0644));
 
+    char_vec obj_list = {.s = calloc(1, 50), .capacity = 50, .cur = 0};
     
     prog_bar p = {.op_name = "Compiling", .n_tasks = n_changed, .completed = 0};
     make_obj_dir();
     char* b = (char*)files;
-    char** cflags = get_comp_argv(c);
+    cflags = get_comp_argv(c);
+
     for (size_t i = 0; i < n_changed; i++)
     {
-        if (!compile_obj(b, &p, cflags)) {
+        if (!compile_obj(b, &p, cflags, &obj_list)) {
             log_fatal("One of the compilations failed.");
             delete_cache_err(files, n_changed);
+            ret = 0;
             goto __exit;
         };
         while(*b) b++;
         b++;
     }
     log_okay("Compilation succeded.");
-    
-__exit:
-    for (size_t i = 3; i < STATIC_AMNT + c->app.compilation.cflags.size; i++)
-    {
-        free(cflags[i]);
+
+
+    // Link
+    if (!link_objects(obj_list.s)) {
+        log_fatal("Linking failed.");
+        ret = 0;
+        goto __exit;
     }
-    free(cflags);
+    log_okay("Linking succesful");
+    printf(COLOR_WHITE""STYLE_BOLD"==> "TARGET_SO""COLOR_RESET"\n");
+
+__exit:
+    if (cflags) {
+        for (size_t i = 3; i < STATIC_AMNT + c->app.compilation.cflags.size; i++) free(cflags[i]);
+        free(cflags);
+    }
+    free(obj_list.s);
 __exit_no_files:
     free((void*)files);
-    refl_generic_destructor(config_type, c);
+    refl_threadlocal_destroy();
+    return ret;
 }
