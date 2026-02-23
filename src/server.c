@@ -99,25 +99,29 @@ async(server_set_tcp, app_config* config) {
     tcp_listener_t* t = clean_on_drop(asc_tcp_bind(addr, port));
     if (!t) {
         mlog_panic("server_set_tcp", "couldn't create tcp listener: %s", strerror(errno));
-        task_return_void();
+        task_return(int, 1);
     }
+
 
     load_app(config);
 
     await(task_spawn(accept_loop, .t = t));
-    end_return_void();
+    end_return(int, 0);
 }
 
 
-void server_start(mcfw_arg_config* c) {
+void server_start() {
 
 
     worker_t* w = worker_create(1, task_entry(server_set_tcp, .config = g_app_config));
-    if (c->no_ss) {
+    if (g_args.no_ss) {
         worker_disable_sigsegv(w);
     }
     worker_run(w);
-    worker_await_all(w);
+    int exit_code = task_recover_from_worker(worker_await_all(w), 0, int);
+    if (exit_code != 0) {
+        _Exit(exit_code);
+    } 
     mlog_info("server_start", "Server closed.");
     worker_destroy(w);
 }

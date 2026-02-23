@@ -21,12 +21,12 @@
 #define ASCLIB_STATIC "asclib/libasclib.a"
 #define TARGET_SO     ".host/libapp.so"
 //                                              ⌄⌄ replaced by config
-char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-fPIC", "-shared", "-o"};
+char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-m64", "-fPIC", "-o"};
 
 #define STATIC_AMNT sizeof(static_flags) / sizeof(char*)
 
-char* link_static_flags[] = {NULL, NULL, "-L.host", "-l:.mcfw_server",
-    "-Wl,-rpath,\'$ORIGIN/\'"DEPENDENCIES_FOLDER, "-Wl,--as-needed", "-rdynamic", "-shared", "-o", TARGET_SO, NULL};
+char* link_static_flags[] = {NULL, NULL, "-fPIC", "-shared",
+    "-Wl,-Bsymbolic", "-o", TARGET_SO, NULL};
 
 #define LINK_STATIC_AMNT sizeof(link_static_flags) / sizeof(char*)
 
@@ -127,7 +127,7 @@ static char** get_comp_argv(app_config* c) {
     return ret;
 }
 
-/*
+
 static void get_manual_obj_list(char_vec* v) {
     DIR* d = opendir(CACHE_DIR"/obj");
     if (!d) {
@@ -147,7 +147,7 @@ static void get_manual_obj_list(char_vec* v) {
         char_push(v, " ", 1);
     }
     closedir(d);
-}*/
+}
 
 
 int cmd_build() {
@@ -188,16 +188,24 @@ int cmd_build() {
     // Compilation process
     size_t n_changed;
     char** cflags = NULL;
+    char_vec obj_list = {0};
 
     char** files = get_changed_files((char*)c->app.source_folder, &n_changed);
 
     if (!n_changed) {
         log_okay("Nothing to be done.");
+        // Check if output exists because the linkage might've failed
+        e = stat(TARGET_SO, &st) == 0;
+        if (!e || S_ISDIR(st.st_mode)) {
+            obj_list = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
+            get_manual_obj_list(&obj_list);
+            goto __link;
+        }
         goto __exit_no_files;
     }
     close(creat(CACHE_DIR"/last_comp.cmd", 0644));
 
-    char_vec obj_list = {.s = calloc(1, 50), .capacity = 50, .cur = 0};
+    obj_list = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
     
     prog_bar p = {.op_name = "Compiling", .n_tasks = n_changed, .completed = 0};
     make_obj_dir();
@@ -219,6 +227,7 @@ int cmd_build() {
 
 
     // Link
+__link:
     if (!link_objects(obj_list.s)) {
         log_fatal("Linking failed.");
         ret = 0;
@@ -237,4 +246,8 @@ __exit_no_files:
     free((void*)files);
     refl_threadlocal_destroy();
     return ret;
+}
+
+int cmd_clean() {
+    return 0;
 }

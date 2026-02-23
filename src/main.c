@@ -22,35 +22,32 @@ uint32_t reload_version = 0;
 
 static app_config* load_config();
 static void __free_config();
-static void parse_args(int argc, const char** argv, mcfw_arg_config* c);
-
-void server_start(mcfw_arg_config* c);
+static void parse_args(int argc, const char** argv);
+void server_start();
 
 
 int main(int argc, const char** argv) {
 
-    mcfw_arg_config c = {0};
-    parse_args(argc, argv, &c);
-    g_args = c;
+    parse_args(argc, argv);
     g_app_config = load_config();
     mlog_info("main", "loaded_config");
     atexit(__free_config);
 
-    server_start(&c);
+    server_start();
 
     return 0;
 }
 
 
-void parse_args(int argc, const char** argv, mcfw_arg_config* c) {
+void parse_args(int argc, const char** argv) {
     char* path = NULL;
     struct argparse_option options[] = {
         OPT_HELP(),
         OPT_GROUP("General options"),
         OPT_STRING('p', "set-dir", &path, "set working directory", NULL, 0, 0),
-        OPT_BOOLEAN('h', "enable-hot-reloading", &c->hr_enabled, "watch files in source folder for changes and reload the server.", NULL, 0, 0),
-        OPT_INTEGER('l', "log-level", &c->log_level, "log-level.", NULL, 0, 0),
-        OPT_BOOLEAN('s', "no-ss-handler", &c->no_ss,"disable asclib sigsegv handler", NULL, 0, 0),
+        OPT_BOOLEAN('h', "enable-hot-reloading", &g_args.hr_enabled, "watch files in source folder for changes and reload the server.", NULL, 0, 0),
+        OPT_INTEGER('l', "log-level", &g_args.log_level, "log-level.", NULL, 0, 0),
+        OPT_BOOLEAN('s', "no-ss-handler", &g_args.no_ss,"disable asclib sigsegv handler", NULL, 0, 0),
         OPT_END()
     };
 

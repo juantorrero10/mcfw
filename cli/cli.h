@@ -9,6 +9,7 @@ extern int force_cache;
 int cmd_init();
 int cmd_build();
 int cmd_run();
+int cmd_clean();
 
 typedef struct {
     char* s;
@@ -23,7 +24,7 @@ void cache_file_checksums(char* src_folder, int rec_lvl);
 char** get_changed_files(char* src_folder, size_t* out_n_files);
 void delete_cache_err(char** files, size_t n_files);
 
-
+#define TERM_BY_SIGNAL (2 << 16)
 int run_subprocess(char* file, char** argv, int daemon, int quiet, int log);
 
 #include <stdint.h>

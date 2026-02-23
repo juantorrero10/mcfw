@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <errno.h>
 #include <string.h>
 
 #include <crefl/types.h>
@@ -27,6 +28,8 @@ static command load_command_ptr(int argc, const char** argv, int* help) {
         return cmd_build;
     } else if (!strcmp(cmd, "run")){
         return cmd_run;
+    } else if (!strcmp(cmd, "clean")) {
+        return cmd_clean;
     } else if (!strcmp(cmd, "--help")){
         *help = 1;
         return NULL;
@@ -63,7 +66,7 @@ int main(int argc, const char** argv) {
     argparse_parse(&a, (help)? argc : argc - 1, (help)? argv : argv + 1);
 
     fptr();
-    if (!g_app_config) refl_generic_destructor(refl_fetch_struct(APP_CONFIG_TYPE), g_app_config);
+    if (g_app_config) refl_generic_destructor(refl_fetch_struct(APP_CONFIG_TYPE), g_app_config);
 
     return 0;
 }

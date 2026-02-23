@@ -59,6 +59,11 @@ int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
         waitpid(pid, &status, 0);
 
         if (isatty(STDIN_FILENO)) tcsetpgrp(STDIN_FILENO, getpgrp());
+        if (WIFSIGNALED(status)) {
+            int sig = WTERMSIG(status);
+            return TERM_BY_SIGNAL + sig;
+        }
+
         return WEXITSTATUS(status);
     }
     return 0;

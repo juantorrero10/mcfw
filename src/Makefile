@@ -6,12 +6,13 @@ LIBS_DIR = ../dependencies
 
 INCLUDE = ../dependencies
 CC = gcc
-CFLAGS_HOST_D = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -g -Wl,--export-dynamic
-CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -O2 -Wl,--export-dynamic
-
+CFLAGS_HOST_D = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -g 
+CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -O2
 CFLAGS = $(CFLAGS_HOST_R)
 
-LIBS = -L$(LIBS_DIR) -l:crefl/libcrefl.a -Wl,--whole-archive -l:asclib/libasclib.a -Wl,--no-whole-archive
+LIBS = -L$(LIBS_DIR) -l:crefl/libcrefl.a \
+	-Wl,--whole-archive -l:asclib/libasclib.a -Wl,--no-whole-archive \
+	-rdynamic -ldl -lpthread
 
 
 # --------- OUT FOLDERS ------------------
