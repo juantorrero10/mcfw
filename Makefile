@@ -13,6 +13,13 @@ YELLOW = \033[0;33m
 
 -include $(DEPS)
 
+#verbose flag
+ifeq ($(V),1)
+  Q :=
+else
+  Q := @
+endif
+
 
 all: cli framework
 	@echo "$(YELLOW)Created app enviroment at ==> $(OUT_ENV).$(WHITE)"
@@ -22,12 +29,12 @@ all: cli framework
 cli:
 	@mkdir -p $(BUILD) && echo "$(CYAN)(+) $(BUILD).$(WHITE)" 
 	@mkdir -p $(OUT_OBJ) && echo "$(CYAN)(+) $(OUT_OBJ).$(WHITE)"
-	@$(MAKE) -C cli
+	@$(MAKE) -C cli V=$(V)
 
 framework:
 	@mkdir -p $(BUILD) && echo "$(CYAN)(+) $(BUILD).$(WHITE)" 
 	@mkdir -p $(OUT_OBJ) && echo "$(CYAN)(+) $(OUT_OBJ).$(WHITE)"
-	@$(MAKE) -C src
+	@$(MAKE) -C src V=$(V)
 
 clean:
 	@$(MAKE) clean -C cli

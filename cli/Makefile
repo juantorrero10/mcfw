@@ -12,6 +12,13 @@ LIBS = -L../dependencies -l:crefl/libcrefl.a
 OUT_ENV 	= ../app
 OUT_OBJ 	= ../build/cli/obj
 
+#verbose flag
+ifeq ($(V),1)
+  Q :=
+else
+  Q := @
+endif
+
 
 # ------ CLI OBJECTS ---------------
 CLI_SRC = .
@@ -42,16 +49,16 @@ all: $(BIN_CLI)
 # === COMPILE ===
 $(OUT_OBJ)/%.o: $(CLI_SRC)/%.c | $(OUT_OBJ)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS_CLI) -c $< -o $@
+	$(Q)$(CC) $(CFLAGS_CLI) -c $< -o $@
 	@echo "$(GREEN)(+) $@.$(WHITE)"
 
 # == LINK ==
 $(BIN_CLI): $(CRELF_FILE) $(CLI_O) | $(OUT_ENV)
-	$(CC) $(CFLAGS_CLI) -o $@ $(CLI_O) $(LIBS)
+	$(Q)$(CC) $(CFLAGS_CLI) -o $@ $(CLI_O) $(LIBS)
 	@echo "$(PURPLE)(+) $@.$(WHITE)"
 
 $(CRELF_FILE): $(PY_INPUT) | $(OUT_ENV)/.host
-	$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
+	$(Q)$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
 
 $(OUT_ENV) $(OUT_ENV)./host $(OUT_OBJ):
 	@echo "$(CYAN)(+) $@.$(WHITE)"
@@ -60,7 +67,7 @@ $(OUT_ENV) $(OUT_ENV)./host $(OUT_OBJ):
 clean:
 	@rm -f $(BIN_CLI) && echo "$(RED)(-) $(BIN_CLI)."
 	@rm -rf $(OUT_OBJ) && echo "(-) $(OUT_OBJ).$(WHITE)"
-	@rm -f $(CRELF_FILE) && echo "$(RED)(-) $(CRELF_FILE)."
+	@rm -f $(CRELF_FILE) && echo "$(RED)(-) $(CRELF_FILE).$(WHITE)"
 
 
 -include $(DEPS)

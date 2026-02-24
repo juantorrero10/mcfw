@@ -44,6 +44,13 @@ CYAN   = \033[0;96m
 RED    = \033[0;91m
 YELLOW = \033[0;33m
 
+#verbose flag
+ifeq ($(V),1)
+  Q :=
+else
+  Q := @
+endif
+
 
 all: $(BIN_HOST)
 all:
@@ -53,16 +60,16 @@ all:
 # == COMPILE ==== 
 $(OUT_OBJ)/%.o: $(HOST_SRC)/%.c | $(OUT_OBJ)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(Q)$(CC) $(CFLAGS) -c $< -o $@
 	@echo "$(GREEN)(+) $@.$(WHITE)"
 
 # == LINK ==
 $(BIN_HOST): $(CRELF_FILE) $(HOST_O) | $(OUT_ENV_HOST)
-	$(CC) $(CFLAGS) -o $@ $(HOST_O) $(LIBS)
+	$(Q)$(CC) $(CFLAGS) -o $@ $(HOST_O) $(LIBS)
 	@echo "$(PURPLE)(+) $@.$(WHITE)"
 
 $(CRELF_FILE): $(PY_INPUT) | $(OUT_ENV_HOST)
-	@$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
+	$(Q)$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
 
 $(OUT_ENV) $(OUT_ENV_HOST) $(OUT_OBJ):
 	@mkdir -p $@ && echo "$(CYAN)(+) $@.$(WHITE)"
