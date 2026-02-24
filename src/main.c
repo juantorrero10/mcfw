@@ -10,8 +10,8 @@
 #include <crefl/serial/formats.h>
 
 #include "vendor/argparse.h"
-#include "configs.h"
-#include "log.h"
+#include "private/configs.h"
+#include "private/log.h"
 
 #define SO_LOAD_CREFL "../dependencies/crefl/libcrefl.so"
 

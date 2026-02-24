@@ -3,14 +3,45 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 #include <crefl/types.h>
+
+typedef struct {
+    uint8_t* data;
+    size_t count;
+    size_t capacity;
+} u8_vec;
+
+#define U8_VEC_NULL (u8_vec){0}
+
+
+#define U8_VEC(_buffer, _size) ({\
+    (u8_vec){.data = (uint8_t*)_buffer, .count = _size, .capacity = _size };\
+})
+
+#define U8_VEC_NEW(_buffer, _cap) ({\
+    (u8_vec){.data = (uint8_t*)_buffer, .count = 0, .capacity = _cap };\
+})
+
+#define U8_VEC_STR(_buffer) ({\
+    size_t __s = strlen(_buffer);\
+    U8_VEC(_buffer, __s);\
+})
+
+#define U8_VEC_SUBSTR(_buffer, start, end) ({\
+    U8_VEC(_buffer + start, end - start);\
+})
+
+#define U8_VEC_FORMAT(vec) (int)((vec).count), (vec).data
 
 REFLECT(enum) {
     HTTP_OK = 200,
     HTTP_BAD_REQUEST = 400,
+    HTTP_GONE = 403,
     HTTP_NOT_FOUND = 404,
     HTTP_METHOD_NOT_ALLOWED = 405,
-    HTTP_INTERNAL_SERVER_ERROR = 500
+    HTTP_INTERNAL_SERVER_ERROR = 500,
+    HTTP_SERVICE_UNAVAILABLE = 503
 } http_status_code;
 
 typedef enum {
@@ -19,22 +50,13 @@ typedef enum {
     APP_JSON,
 } http_content_type;
 
-
-typedef struct {
-    http_status_code code;
-    http_content_type type;
-    void* buff;
-} http_response;
+typedef struct __MCFW_HTTP_RESPONSE__ http_response;
 
 typedef struct {
     //headers
     http_content_type type;
     void* buff;
 } http_request;
-
-typedef http_response (*route_method)(http_request);
-
-typedef void* (*async_fn)(void*);
 
 REFLECT(enum) {
     GET,
@@ -46,32 +68,14 @@ REFLECT(enum) {
     HEAD
 } request_kind;
 
-REFLECT(struct)
+typedef struct
 {
-    char* route;
+    u8_vec route_str;
     request_kind r_kind;
     void* method_fptr;
 } router_entry;
 
-#define ROUTER_SIGNATURE 0x524F5452 // "ROTR"
-
-REFLECT(struct) {
-    uint32_t signature;
-    DYN_ARRAY(router_entry) entries;
-} router;
-
-typedef enum {
-    MCFW_OK,
-    MCFW_ERR,
-} mcfw_status;
-
-typedef struct {
-    mcfw_status st;
-    union {
-        async_fn method_fptr;
-        http_status_code err;
-    } data;
-} routing_result;
+typedef struct __MCFW__ROUTER__ router;
 
 
 

@@ -7,7 +7,7 @@ LIBS_DIR = ../dependencies
 INCLUDE = ../dependencies
 CC = gcc
 CFLAGS_HOST_D = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -g 
-CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -O2
+CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -g
 CFLAGS = $(CFLAGS_HOST_R)
 
 LIBS = -L$(LIBS_DIR) -l:crefl/libcrefl.a \
@@ -35,6 +35,8 @@ CFLAGS_HOST_R += -DHOST_CREFL=\"$(CRELF_FILE)\"
 DEPS := $(HOST_O:.o=.d)
 
 BIN_HOST := $(OUT_ENV_HOST)/$(TARGET_HOST)
+
+CLI := $(OUT_ENV)/mcfw
 
 # ------------ COLORS ------------------
 WHITE  = \033[0;39m
@@ -84,7 +86,7 @@ run: CFLAGS = $(CFLAGS_HOST_D)
 run: all
 	@echo "$(YELLOW)Running ====> $(BIN_HOST).$(WHITE)"
 	@echo "  "
-	@./$(BIN_HOST) --set-dir $(OUT_ENV)
+	@./$(CLI) run --set-pwd $(OUT_ENV)
 
 
 

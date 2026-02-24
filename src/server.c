@@ -10,20 +10,30 @@
 #include <crefl/core.h>
 #include <crefl/serial/formats.h>
 
-#include "configs.h"
-#include "log.h"
+#include "private/log.h"
 #include "public/types.h"
 #include "public/router.h"
-#include "router_priv.h"
+#include "private/types.h"
+#include "private/router.h"
+
+int g_exit_signal = 0;
+
 
 static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg);
 
-void send_response_back(int fd, int code, char* buff, size_t __n) {
-    size_t res_sz = 0;
-    snprintf(buff, __n, "%d %s", code, refl_enum_get_label(refl_fetch_enum("http_status_code"), code));
-    res_sz = strlen(buff);
+void send_response_back(int fd, int code, u8_vec* buffer, u8_vec* body) {
 
-    ssize_t sz = io_timeout(ssize_t, asc_send(fd, buff, res_sz), 200, {
+    if (body->data) {
+        snprintf((char*)buffer->data, buffer->capacity, "%d %s %.*s", code, 
+            refl_enum_get_label(refl_fetch_enum("http_status_code"), code), U8_VEC_FORMAT(*body));
+    } else {
+        snprintf((char*)buffer->data, buffer->capacity, "%d %s", code, 
+            refl_enum_get_label(refl_fetch_enum("http_status_code"), code));
+    }
+
+    buffer->count = strlen((const char*)buffer->data); 
+
+    ssize_t sz = io_timeout(ssize_t, asc_send(fd, buffer->data, buffer->count), 200, {
         mlog_warn("client_handler", "<%d> timed out", fd);
         return;
     });
@@ -32,9 +42,19 @@ void send_response_back(int fd, int code, char* buff, size_t __n) {
     }
 }
 
-static inline void trim_buffer(char* ptr, size_t sz) {
-    char* _ptr = ptr;
-    while(_ptr < ptr + sz) {
+/*
+static void hexdump(uint8_t* p, size_t a) {
+    for (size_t i = 0; i < a; i++)
+    {
+        if (!(i & 0xF)) putc('\n', stdout);
+        printf("%02hhX ", p[i]);
+    }
+    putc('\n', stdout);
+}*/
+
+static inline void trim_buffer(u8_vec* str) {
+    char* _ptr = (char*)str->data;
+    while(_ptr < (char*)str->data + str->count) {
         switch (*_ptr)
         {
         case ' ':
@@ -47,11 +67,11 @@ static inline void trim_buffer(char* ptr, size_t sz) {
         
         default:
             _ptr++;
-            printf("%s\n", _ptr);
             continue;
         }
         break;
     }
+    str->count = (size_t)(_ptr - (char*)str->data);
 }
 
 /**
@@ -60,44 +80,63 @@ static inline void trim_buffer(char* ptr, size_t sz) {
 async(client_handler, int fd) {
     detach;
     int fd = clean_on_drop(arg(fd));
-    char buff[1024];
+    char __b[1024];
+    u8_vec buff = U8_VEC_NEW(__b, 1024);
 
-    ssize_t sz = io_timeout(ssize_t, asc_recv(fd, buff, 1024), 10000, {
+    ssize_t sz = io_timeout(ssize_t, asc_recv(fd, buff.data, buff.capacity), 10000, {
         mlog_warn("client_handler", "<%d> timed out", fd);
         task_return_void();
     });
 
+    buff.count = sz;
+
     if (sz >= 0) {
-        mlog_info("client_handler", "Received from <%d>: %.*s", fd, (int)sz, buff);
+        //mlog_info("client_handler", "Received from <%d>: %.*s", fd, U8_VEC_FORMAT(buff));
     } else {
         mlog_error("client_handler", "Couldn't receive from client: %s", strerror(errno));
         task_return_void();
     }
 
     if (sz == 0) {
-        send_response_back(fd, HTTP_BAD_REQUEST, buff, 1024);
+        send_response_back(fd, HTTP_BAD_REQUEST, &buff, &U8_VEC_NULL);
     }
 
-    char* method = buff;
-    char* route = strchr(buff, ' ');
-    if (!route) {
-        send_response_back(fd, HTTP_BAD_REQUEST, buff, 1024);
+    uint8_t* space = (uint8_t*)strchr((char*)buff.data, ' ');
+    if (!space) {
+        send_response_back(fd, HTTP_BAD_REQUEST, &buff, &U8_VEC_NULL);
         task_return_void();
     }
-    buff[(size_t)(route++ - buff)] = '\0';
-    trim_buffer(route, sz - (size_t)(route - buff));
-    buff[sz] = '\0';
+    size_t method_sz = (size_t)(space - buff.data);
+    u8_vec method = U8_VEC_SUBSTR(buff.data, 0, method_sz);
+    u8_vec route = U8_VEC_SUBSTR(buff.data, method_sz + 1, buff.count);
 
-    routing_result r = mcfw_handler(method, route, 0);
-
-    if (r.st == MCFW_OK) {
-        mlog_warn("client_handler", "found");
-        await(spawn_task_on_fptr(r.data.method_fptr, NULL));
-        send_response_back(fd, 200, buff, 1024);
+    trim_buffer(&route);
+    // TEMP!! to test mem leaks
+    if (route.count == sizeof("/stop") - 1 && !memcmp(route.data, "/stop", sizeof("/stop") - 1)) {
+        send_response_back(fd, HTTP_GONE, &buff, &U8_VEC_NULL);
+        g_exit_signal = 1;
+        task_return_void();
     }
 
-    mlog_warn("client_handler", "notfound");
-    send_response_back(fd, r.data.err, buff, 1024);
+
+    routing_result r = mcfw_get_handler(&method, &route, 0);
+
+    if (r.st == MCFW_OK) {
+        http_response* res =  await_ret(http_response*, spawn_task_on_fptr(r.data.method_fptr, NULL));
+        if (!res) { 
+            send_response_back(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, &U8_VEC_NULL);
+            mlog_error("client_handler", "null ptr received from method: %.*s", U8_VEC_FORMAT(method)); 
+            task_return_void(); 
+        } else if (res->signature != HTTP_RES_SIGNATURE) {
+            mlog_error("client_handler", "http response received from method: %.*s is garbage", U8_VEC_FORMAT(method));
+        }
+        send_response_back(fd, res->code, &buff, &res->buff);
+        free(res->buff.data);
+        free(res);
+        task_return_void();
+    }
+
+    send_response_back(fd, r.data.err, &buff, &U8_VEC_NULL);
 
     end_return_void();
 }
@@ -111,7 +150,7 @@ async(accept_loop, tcp_listener_t* t) {
         t->ip_addr[3],
         t->port
     );
-    while(1) {
+    while(!g_exit_signal) {
         int client_fd = await_ret(int, asc_tcp_accept(t));
         if (client_fd >= 0) {
             task_spawn(client_handler, .fd = client_fd);
@@ -131,6 +170,12 @@ static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg) {
     return __task_create(te);
 }
 
+/**
+ * @todo TEMP!! change to hot-reloading thing
+ */
+void* temp_g_handle = NULL;
+static void _temp_close_app() { if(temp_g_handle)dlclose(temp_g_handle); }
+
 static int load_app(app_config* config) {
     void* app_handle = dlopen(APP_SO, RTLD_LAZY | RTLD_LOCAL);
     if (!app_handle) {
@@ -144,7 +189,9 @@ static int load_app(app_config* config) {
     }
     router* r = await_ret(router*, spawn_task_on_fptr(entry_point, NULL));
     mcfw_register_router(r);
-    dlclose(app_handle);
+    //TEMP!!
+    temp_g_handle = app_handle;
+    atexit(_temp_close_app);
     return 1;
 }
 

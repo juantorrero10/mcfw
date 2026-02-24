@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <crefl/types.h>
 #include <crefl/core.h>
@@ -45,6 +46,8 @@ int main(int argc, const char** argv) {
     int help = 0;
     command fptr = load_command_ptr(argc, argv, &help);
     if (!fptr && !help) return 1;
+
+    char* p_ptr = NULL;
     
     struct argparse_option options[] = {
         OPT_HELP(),
@@ -52,11 +55,15 @@ int main(int argc, const char** argv) {
         OPT_BOOLEAN('f', "force-compile", &g_flags.force_compile, "Ignore cached obj files, recompile everything", NULL, 0, 0),
         OPT_BOOLEAN('s', "serial-compilation", &g_flags.serial_comp ,"Do not parallelize the compilation.", NULL, 0, 0),
         OPT_GROUP("Runtime options."),
-        OPT_INTEGER('l', "log-level", &g_flags.log_level, "0 = INFO, 1 = WARNINGS, 2 = ERRORS AND PANICS", NULL, 0, 0),
+        OPT_INTEGER(0, "log-level", &g_flags.log_level, "0 = INFO, 1 = WARNINGS, 2 = ERRORS AND PANICS", NULL, 0, 0),
         OPT_BOOLEAN('q', "quiet", &g_flags.quiet, "Run without output.", NULL, 0, 0),
         OPT_BOOLEAN('d', "daemon", &g_flags.daemon, "Run in background", NULL, 0, 0),
+        OPT_GROUP("Misc."),
+        OPT_STRING(0, "set-pwd", &p_ptr, "Set working directory.", NULL, 0, 0),
         OPT_END(),
     };
+
+
 
     struct argparse a;
 
@@ -66,6 +73,14 @@ int main(int argc, const char** argv) {
         "\nCommands: init, dev, build, daemon, clean, help");
     
     argparse_parse(&a, (help)? argc : argc - 1, (help)? argv : argv + 1);
+
+
+    if (p_ptr) {
+        if (chdir(p_ptr) != 0) {
+            log_fatal("Couldn't set pwd: %s", strerror(errno));
+            _Exit(1);
+        }
+    }
 
     fptr();
     if (g_app_config) refl_generic_destructor(refl_fetch_struct(APP_CONFIG_TYPE), g_app_config);
