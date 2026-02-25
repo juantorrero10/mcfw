@@ -14,8 +14,8 @@
 #include "private/log.h"
 #include "public/types.h"
 #include "public/router.h"
-#include "private/types.h"
 #include "private/router.h"
+#include "private/load.h"
 
 
 oneshot_tx_ref_t g_shutdown_tx;
@@ -75,7 +75,7 @@ static inline void trim_buffer(u8_vec* str) {
 async(client_handler, int fd) {
     detach;
     int fd = clean_on_drop(arg(fd));
-    size_t version = reload_version;
+    size_t version = APP_CURR_VERSION;
     char __b[1024];
     u8_vec buff = U8_VEC_NEW(__b, 1024);
 
@@ -109,7 +109,7 @@ async(client_handler, int fd) {
     trim_buffer(&route);
 
 
-    routing_result r = mcfw_get_handler(&method, &route, version);
+    routing_result r = router_get_handler(&method, &route, version);
 
     if (r.st == MCFW_OK) {
         http_response* res =  await_ret(http_response*, spawn_task_on_fptr(r.data.method_fptr, NULL));
@@ -173,30 +173,7 @@ static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg) {
     return __task_create(te);
 }
 
-/**
- * @todo TEMP!! change to hot-reloading thing
- */
-void* temp_g_handle = NULL;
-static void _temp_close_app() { if(temp_g_handle)dlclose(temp_g_handle); }
 
-static int load_app(app_config* config) {
-    void* app_handle = dlopen(APP_SO, RTLD_LAZY | RTLD_LOCAL);
-    if (!app_handle) {
-        mlog_error("load_app","Couldn't load application: %s", dlerror());
-        return 0;
-    }
-    async_fn entry_point = dlsym(app_handle, config->app.entry_point);
-    if (!entry_point) {
-        mlog_error("load_app","Couldn't find application entry point. %s", dlerror());
-        return 0;
-    }
-    router* r = await_ret(router*, spawn_task_on_fptr(entry_point, NULL));
-    mcfw_register_router(r);
-    //TEMP!!
-    temp_g_handle = app_handle;
-    atexit(_temp_close_app);
-    return 1;
-}
 
 decl_async(void, hot_reload_watch);
 

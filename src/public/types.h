@@ -45,9 +45,9 @@ REFLECT(enum) {
 } http_status_code;
 
 typedef enum {
-    APP_TEXT,
-    APP_HTML,
-    APP_JSON,
+    CONTENT_TEXT,
+    CONTENT_HTML,
+    CONTENT_JSON,
 } http_content_type;
 
 typedef struct __MCFW_HTTP_RESPONSE__ http_response;

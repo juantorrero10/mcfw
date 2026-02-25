@@ -6,94 +6,20 @@
 #include <stdlib.h>
 
 #include <crefl/core.h>
+#include <crefl/scope.h>
 #include <crefl/serial/formats.h>
 
 #include "private/types.h"
 #include "private/log.h"
 #include "private/router.h"
-
-
-typedef struct {
-    uint32_t reload_version;
-    router router;
-} router_table_entry;
-
-typedef struct {
-    DYN_ARRAY(router_table_entry) t;
-} router_table;
-
-router_table g_router_table;
-
-#define INITIAL_ROUTER_TABLE_ENTRIES 4
+#include "private/load.h"
 
 #define ROUT_RET_ERR(_err) (routing_result){.data.err = (_err), .st = MCFW_ERR};
 #define ROUT_RET_OK(_fptr) (routing_result){.data.method_fptr = (_fptr), .st = MCFW_OK};
 
 
 
-static void _append_router(router_table* t, router* r) {
-    if (t->t.size >= t->t.capacity) {
-        t->t.array = realloc(t->t.array, t->t.chunk_size * 2 * t->t.capacity);
-        t->t.capacity *= 2;
-    }
-    router_table_entry te = (router_table_entry){.reload_version = reload_version, .router = *r};
-    free(r);
-    memcpy((router_table_entry*)t->t.array + t->t.size++, &te, t->t.chunk_size);
-}
 
-static void _router_destroy(router* r) {
-    for (size_t i = 0; i < r->entries.size; i++)
-    {
-        router_entry* re = (router_entry*)r->entries.array + i;
-        free(re->route_str.data);   
-    }
-    free(r->entries.array);
-}
-
-static void _free_router_table() {
-    for (size_t i = 0; i < g_router_table.t.size; i++)
-    {
-        router_table_entry* rte = (router_table_entry*)g_router_table.t.array + i;
-        _router_destroy(&rte->router);
-    }
-    
-    free(g_router_table.t.array);
-}
-
-void mcfw_register_router(router* r) {
-    if (!r) {
-        mlog_error("mcfw_register_router", "null ptr.");
-        return;
-    }
-    if (r->signature != ROUTER_SIGNATURE) {
-        mlog_error("mcfw_register_router", "pointer given: '%p' is garbage", r);
-        return;
-    }
-
-    if (!g_router_table.t.array) {
-        g_router_table.t = (r_array_t){
-            .array = calloc(sizeof(router_table_entry), INITIAL_ROUTER_TABLE_ENTRIES),
-            .capacity = INITIAL_ROUTER_TABLE_ENTRIES,
-            .size = 0,
-            .chunk_size = sizeof(router_table_entry)
-        };
-        atexit(_free_router_table);
-    }
-    _append_router(&g_router_table, r);
-}
-
-static inline router* _get_router_with_version(uint32_t ver) {
-    uint32_t idx;
-    for (size_t i = ver; i < g_router_table.t.size; i++)
-    {
-        idx = i % g_router_table.t.size;
-        router_table_entry* rte = &((router_table_entry*)g_router_table.t.array)[idx];
-        if (rte->reload_version == ver) {
-            return &rte->router;
-        }
-    }
-    return NULL;
-}
 
 static int _get_req_from_str(u8_vec* method) {
     REnum* e = refl_fetch_enum("request_kind");
@@ -110,11 +36,12 @@ static int _get_req_from_str(u8_vec* method) {
 /**
  * @todo hash table
  */
-routing_result mcfw_get_handler(u8_vec* method, u8_vec* route, uint32_t version) {
-    mlog_info("mcfw_get_handler", "method: %.*s, route: %.*s", U8_VEC_FORMAT(*method), U8_VEC_FORMAT(*route));
+routing_result router_get_handler(u8_vec* method, u8_vec* route, uint32_t version) {
+    mlog_info("router_get_handler", "method: %.*s, route: %.*s", U8_VEC_FORMAT(*method), U8_VEC_FORMAT(*route));
 
-    router* r = _get_router_with_version(version);
-    if (!r) return ROUT_RET_ERR(HTTP_INTERNAL_SERVER_ERROR);
+    app_context* c = load_get_ctx_with_version(version);
+    if (!c) return ROUT_RET_ERR(HTTP_INTERNAL_SERVER_ERROR);
+    router* r = &c->router;
 
     for (size_t i = 0; i < r->entries.size; i++)
     {
@@ -143,4 +70,13 @@ router* router_create(router_entry* entries, size_t amount) {
     ret->entries = (r_array_t){.array = _entries, .chunk_size = sizeof(router_entry), .size = amount, .capacity = amount};
     ret->signature = ROUTER_SIGNATURE;
     return ret;
+}
+
+void router_destroy(router* r) {
+    for (size_t i = 0; i < r->entries.size; i++)
+    {
+        router_entry* re = (router_entry*)r->entries.array + i;
+        free(re->route_str.data);   
+    }
+    free(r->entries.array);
 }

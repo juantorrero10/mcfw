@@ -13,11 +13,9 @@
 #include "private/configs.h"
 #include "private/log.h"
 
-#define SO_LOAD_CREFL "../dependencies/crefl/libcrefl.so"
 
 mcfw_arg_config g_args = {0};
 app_config* g_app_config = NULL;
-uint32_t reload_version = 0;
 
 
 static app_config* load_config();
