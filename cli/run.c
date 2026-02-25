@@ -1,3 +1,6 @@
+
+#define _POSIX_C_SOURCE 199309L
+
 #include <crefl/core.h>
 #include <crefl/types.h>
 #include <unistd.h>
@@ -7,6 +10,8 @@
 #include "log.h"
 
 #define MCFW_BINARY ".host/.mcfw_server"
+
+#define COMP_RED_HERRING ".host/dont_reload"
 
 REFLECT(enum) {
     SIGHUP           =1,
@@ -44,22 +49,43 @@ REFLECT(enum) {
     SIGUNUSED       =31
 } signals;
 
+
+
 #include <signal.h>
+
+// Signal turned on by SIGUSR1 handler
+volatile sig_atomic_t received_signal = 0;
+
+static void sigusr1_h(int s) {
+    (void)s;
+    received_signal = 1;
+}
 
 int cmd_run() {
 
     close(creat(CACHE_DIR"/last_comp.txt", 0644));
-    
-    if (!cmd_build()) return 0;
+
+    if (g_flags.watch) {
+        struct sigaction sa = {0};
+        sa.sa_handler = sigusr1_h;
+        sigemptyset(&sa.sa_mask);
+
+        if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+            log_fatal("Could not set watch signal handler (SIGUSR1)");
+            _exit(1);
+        }
+    }
+    if (!cmd_build(0)) return 0;
 
     if (!g_flags.daemon)
         log_running(MCFW_BINARY);
 
-    char* argv[] = {MCFW_BINARY, NULL, NULL, NULL};
+    char* argv[] = {MCFW_BINARY, NULL, NULL, NULL, NULL};
     argv[1] = "--log-level";
     char buff[10];
     argv[2] = buff;
     sprintf(argv[2], "%d", g_flags.log_level);
+    argv[3] = (g_flags.watch)? "--enable-hot-reloading" : NULL;
 
     signal(SIGINT, SIG_IGN);
     int ret = run_subprocess(MCFW_BINARY, argv, g_flags.daemon, g_flags.quiet, g_flags.create_log);
@@ -79,6 +105,6 @@ int cmd_run() {
         return 0;
     }
 
-
+    
     return 1;
 }

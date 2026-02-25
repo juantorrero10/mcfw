@@ -26,7 +26,8 @@ CLI_C := $(shell find $(CLI_SRC) -name "*.c" ! -path "$(CLI_SRC)/templates/*")
 CLI_O := $(patsubst $(CLI_SRC)/%.c,$(OUT_OBJ)/%.o,$(CLI_C))
 
 # -------------- CREFL STUFF -------------------
-CRELF_FILE  = $(OUT_ENV)/.host/cli_types.crefl
+CREFL_FOLDER	= $(OUT_ENV)/.crefl
+CRELF_FILE  = $(CREFL_FOLDER)/cli_types.crefl
 PY_GEN      = python3 ../dependencies/crefl/crefl_gen
 PY_INPUT    = $(shell find $(CLI_SRC) -name "*.h") $(shell find $(CLI_SRC) -name "*.c")
 CFLAGS_CLI += -DCLI_CREFL=\"$(CRELF_FILE)\"
@@ -57,10 +58,10 @@ $(BIN_CLI): $(CRELF_FILE) $(CLI_O) | $(OUT_ENV)
 	$(Q)$(CC) $(CFLAGS_CLI) -o $@ $(CLI_O) $(LIBS)
 	@echo "$(PURPLE)(+) $@.$(WHITE)"
 
-$(CRELF_FILE): $(PY_INPUT) | $(OUT_ENV)/.host
+$(CRELF_FILE): $(PY_INPUT) | $(CREFL_FOLDER) $(OUT_ENV)/.host
 	$(Q)$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
 
-$(OUT_ENV) $(OUT_ENV)./host $(OUT_OBJ):
+$(OUT_ENV) $(CREFL_FOLDER) $(OUT_ENV)./host $(OUT_OBJ):
 	@echo "$(CYAN)(+) $@.$(WHITE)"
 	@mkdir -p $@
 

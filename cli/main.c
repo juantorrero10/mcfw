@@ -2,9 +2,12 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #include <crefl/types.h>
 #include <crefl/core.h>
+#include <crefl/serial/err.h>
+#include <crefl/serial/formats.h>
 
 #include "vendor/argparse.h"
 #include "cli.h"
@@ -15,7 +18,7 @@ char cache_string[4096];
 app_config* g_app_config = NULL;
 arg_flags g_flags = {0};
 
-typedef int(*command)(void);
+typedef int(*command)(int);
 
 static command load_command_ptr(int argc, const char** argv, int* help) {
     if (argc < 2) {
@@ -28,6 +31,9 @@ static command load_command_ptr(int argc, const char** argv, int* help) {
     } else if (!strcmp(cmd, "build")) {
         return cmd_build;
     } else if (!strcmp(cmd, "run")){
+        return cmd_run;
+    } else if (!strcmp(cmd, "watch")) {
+        g_flags.watch = 1;
         return cmd_run;
     } else if (!strcmp(cmd, "clean")) {
         return cmd_clean;
@@ -78,11 +84,44 @@ int main(int argc, const char** argv) {
     if (p_ptr) {
         if (chdir(p_ptr) != 0) {
             log_fatal("Couldn't set pwd: %s", strerror(errno));
-            _Exit(1);
+            _exit(1);
         }
     }
 
-    fptr();
+    if (g_flags.daemon && g_flags.watch) {
+        log_fatal("'watch' command is incompatible with --daemon (-d) flag.");
+        _exit(1);
+    }
+
+    refl_load_metadata(CLI_CREFL);
+    refl_threadlocal_init(1);
+
+    RStruct* config_type = refl_fetch_struct(APP_CONFIG_TYPE);
+    FILE* f = fopen(APP_CONFIG_FILE, "r");
+    if (!f) {
+        log_fatal("Couldn't open config file (%s): %s", APP_CONFIG_FILE, strerror(errno));
+        _Exit(1);
+        
+    }
+
+
+    fseek(f, 0, SEEK_END);
+    size_t cur = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char* j = malloc(cur + 1);
+    fread(j, cur, 1, f);
+    fclose(f);
+
+    DeserializeResult dr = deserialize_json(config_type, j);
+    free(j);
+    if (dr.st != DR_OK) {
+        log_fatal("Couldn't parse config file: %s", dr.data.err_str);
+        _Exit(2);
+    }
+
+    g_app_config = dr.data.buff;
+
+    fptr(0);
     if (g_app_config) refl_generic_destructor(refl_fetch_struct(APP_CONFIG_TYPE), g_app_config);
 
     return 0;

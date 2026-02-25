@@ -12,7 +12,7 @@ char* app_entry_c = "/**\n * @brief Genrated template entry for the app.\n**/\n"
 "   end_return_void();\n"
 "}\n";
 
-char* gitignore = ".host\nmcfw\n._ccomp_cache__\nlogs";
+char* gitignore = ".host\nmcfw\n._ccomp_cache__\nlogs\n.crefl";
 
 char* app_config_json = "{\n"
     "\t\"app\" : \n"
@@ -46,6 +46,7 @@ int cmd_init() {
     fclose(f);
     f = fopen("app_config.json", "w");
     fwrite(app_config_json, strlen(app_config_json), 1, f);
+    fclose(f);
 
     log_okay("Generated minimal workspace.");
     return 1;

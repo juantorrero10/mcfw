@@ -20,6 +20,7 @@
 #define CC "gcc"
 #define DEPENDENCIES_FOLDER "../dependencies"
 #define ASCLIB_STATIC "asclib/libasclib.a"
+#define TEMP_OUTPUT   CACHE_DIR"/__tempapp.so"
 #define TARGET_SO     ".host/libapp.so"
 #define COMP_MARK     CACHE_DIR"/comp_mark"
 
@@ -29,7 +30,7 @@ char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-
 #define STATIC_AMNT sizeof(static_flags) / sizeof(char*)
 
 char* link_static_flags[] = {"-fPIC", "-shared",
-    "-Wl,-Bsymbolic", "-o", TARGET_SO};
+    "-Wl,-Bsymbolic", "-o", TEMP_OUTPUT};
 
 #define LINK_STATIC_AMNT sizeof(link_static_flags) / sizeof(char*)
 
@@ -165,17 +166,9 @@ static void get_obj_list(char_vec* v) {
 
 
 
-int cmd_build() {
-    refl_load_metadata(CLI_CREFL);
-    refl_threadlocal_init(1);
+int cmd_build(int recompilation) {
     int ret = 1;
-    RStruct* config_type = refl_fetch_struct(APP_CONFIG_TYPE);
-    FILE* f = fopen(APP_CONFIG_FILE, "r");
-    if (!f) {
-        log_fatal("Couldn't open config file (%s): %s", APP_CONFIG_FILE, strerror(errno));
-        _Exit(1);
-        
-    }
+
     struct stat st;
     int e = stat(DEPENDENCIES_FOLDER, &st) == 0;
     if (!e || !S_ISDIR(st.st_mode)) {
@@ -183,30 +176,13 @@ int cmd_build() {
         _Exit(1);
     }
 
-    
-
     // Get timestamp of .so file, (-1) if not created
     e = stat(COMP_MARK, &st) == 0;
     if (e && !S_ISDIR(st.st_mode)) {
         mark_modified_timestamp = st.st_mtime;
     }
 
-    fseek(f, 0, SEEK_END);
-    size_t cur = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* j = malloc(cur + 1);
-    fread(j, cur, 1, f);
-    fclose(f);
-
-    DeserializeResult dr = deserialize_json(config_type, j);
-    free(j);
-    if (dr.st != DR_OK) {
-        log_fatal("Couldn't parse config file: %s", dr.data.err_str);
-        _Exit(2);
-    }
-
-    app_config* c = dr.data.buff;
-    g_app_config = c;
+    app_config* c = g_app_config;
 
     // Compilation process
     size_t n_changed;
@@ -217,14 +193,16 @@ int cmd_build() {
 
     if (!n_changed) {
         log_okay("Nothing to be done.");
-        // Check if output exists because the linkage might've failed
+        // Check if output exists because the linkage might've failed.
+        // Also check if last compilation happened later than last linkage
         e = stat(TARGET_SO, &st) == 0;
-        if (!e || S_ISDIR(st.st_mode)) {
+        if (!e || S_ISDIR(st.st_mode) || mark_modified_timestamp == -1 || mark_modified_timestamp > st.st_mtime) {
             // Create a file of the commnds run on this compilation
             close(creat(CACHE_DIR"/last_comp.txt", 0644));
 
             goto __link;
         }
+        ret = 2;
         goto __exit_no_files;
     }
 
@@ -305,7 +283,7 @@ int cmd_build() {
 
     // if compilation succeds, save an file to mark the timestamp of last comp
     close(creat(COMP_MARK, 0644));
-    log_okay("Compilation succeded.");
+    if (!recompilation) log_okay("Compilation succeded.");
 
     // Link
 __link:
@@ -316,8 +294,24 @@ __link:
         ret = 0;
         goto __exit;
     }
-    log_okay("Linking succesful");
-    printf(COLOR_WHITE""STYLE_BOLD"==> "TARGET_SO""COLOR_RESET"\n");
+    if (recompilation) {
+        if (update_checksum(TEMP_OUTPUT)) {
+            log_okay("Output did not change."); 
+            ret = 2;
+        } else log_okay("Recompiled.");
+    } else {
+        log_okay("Linking succesful.");
+    }
+    // Commit to final output
+    if (ret == 2) {
+        remove(TEMP_OUTPUT); 
+        goto __exit; 
+    }
+    int n = rename(TEMP_OUTPUT, TARGET_SO);
+    if (n != 0) {
+        log_fatal("Couln't produce output: %s", strerror(errno));
+    }
+    if (!recompilation) printf(COLOR_WHITE""STYLE_BOLD"==> "TARGET_SO""COLOR_RESET"\n");
 
 __exit:
     if (cflags) {

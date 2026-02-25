@@ -32,7 +32,9 @@ REFLECT(struct) {
 
 #define APP_CONFIG_TYPE "app_config"
 #define APP_CONFIG_FILE "app_config.json"
-#define APP_SO          ".host/libapp.so"
+#define HOST_FOLDER     ".host"
+#define APP_SO          HOST_FOLDER"/libapp.so"
+#define COMPILATION_RED_HERRING HOST_FOLDER"/dont_reload"
 
 extern app_config* g_app_config;
 

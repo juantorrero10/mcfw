@@ -1,6 +1,7 @@
 #include <dlfcn.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/inotify.h>
 
 #include <asclib/core.h>
 #include <asclib/net/tcp.h>
@@ -16,7 +17,10 @@
 #include "private/types.h"
 #include "private/router.h"
 
-int g_exit_signal = 0;
+
+oneshot_tx_ref_t g_shutdown_tx;
+
+oneshot_tx_ref_t server_get_graceful_shutdown_tx() { return g_shutdown_tx; }
 
 
 static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg);
@@ -42,16 +46,6 @@ void send_response_back(int fd, int code, u8_vec* buffer, u8_vec* body) {
     }
 }
 
-/*
-static void hexdump(uint8_t* p, size_t a) {
-    for (size_t i = 0; i < a; i++)
-    {
-        if (!(i & 0xF)) putc('\n', stdout);
-        printf("%02hhX ", p[i]);
-    }
-    putc('\n', stdout);
-}*/
-
 static inline void trim_buffer(u8_vec* str) {
     char* _ptr = (char*)str->data;
     while(_ptr < (char*)str->data + str->count) {
@@ -76,10 +70,12 @@ static inline void trim_buffer(u8_vec* str) {
 
 /**
  * @brief mock route protocol <METHOD> <ROUTE> -> GET /about
+ * TEMP client_handler
  */
 async(client_handler, int fd) {
     detach;
     int fd = clean_on_drop(arg(fd));
+    size_t version = reload_version;
     char __b[1024];
     u8_vec buff = U8_VEC_NEW(__b, 1024);
 
@@ -111,15 +107,9 @@ async(client_handler, int fd) {
     u8_vec route = U8_VEC_SUBSTR(buff.data, method_sz + 1, buff.count);
 
     trim_buffer(&route);
-    // TEMP!! to test mem leaks
-    if (route.count == sizeof("/stop") - 1 && !memcmp(route.data, "/stop", sizeof("/stop") - 1)) {
-        send_response_back(fd, HTTP_GONE, &buff, &U8_VEC_NULL);
-        g_exit_signal = 1;
-        task_return_void();
-    }
 
 
-    routing_result r = mcfw_get_handler(&method, &route, 0);
+    routing_result r = mcfw_get_handler(&method, &route, version);
 
     if (r.st == MCFW_OK) {
         http_response* res =  await_ret(http_response*, spawn_task_on_fptr(r.data.method_fptr, NULL));
@@ -143,6 +133,8 @@ async(client_handler, int fd) {
 
 async(accept_loop, tcp_listener_t* t) {
     tcp_listener_t* t = arg(t);
+    int shutdown_payload;
+    oneshot_pair_t graceful_shutdown = oneshot_new(sizeof(int), 0);
     mlog_info("accept_loop", "Listening on %hhu.%hhu.%hhu.%hhu:%hu", 
         t->ip_addr[0],
         t->ip_addr[1],
@@ -150,12 +142,23 @@ async(accept_loop, tcp_listener_t* t) {
         t->ip_addr[3],
         t->port
     );
-    while(!g_exit_signal) {
-        int client_fd = await_ret(int, asc_tcp_accept(t));
+    g_shutdown_tx = oneshot_move_tx(graceful_shutdown);
+    while(1) {
+        int client_fd = any_expect_winner_or(
+            int, 1,
+            await_any(
+                asc_oneshot_recv((oneshot_rx_t)graceful_shutdown, &shutdown_payload),
+                asc_tcp_accept(t)).cut_losers(), 
+            {
+                mlog_warn("accept_loop", "Triggered server graceful shutdown, payload: 0x%X", shutdown_payload);
+                break;
+            }
+        );
         if (client_fd >= 0) {
             task_spawn(client_handler, .fd = client_fd);
         }
     }
+    oneshot_drop_rx((oneshot_rx_t)graceful_shutdown);
     end_return_void();
 }
 
@@ -195,6 +198,7 @@ static int load_app(app_config* config) {
     return 1;
 }
 
+decl_async(void, hot_reload_watch);
 
 async(server_set_tcp, app_config* config) {
     app_config* config = arg(config);
@@ -213,8 +217,11 @@ async(server_set_tcp, app_config* config) {
 
 
     load_app(config);
-
+    task_handle_t t_watcher;
+    if (g_args.hr_enabled) t_watcher = task_spawn(hot_reload_watch);
     await(task_spawn(accept_loop, .t = t));
+
+    if (g_args.hr_enabled) drop_task(t_watcher);
     end_return(int, 0);
 }
 

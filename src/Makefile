@@ -17,7 +17,8 @@ LIBS = -L$(LIBS_DIR) -l:crefl/libcrefl.a \
 
 # --------- OUT FOLDERS ------------------
 OUT_ENV      	= ../app
-OUT_ENV_HOST	= ../app/.host
+OUT_ENV_HOST	= $(OUT_ENV)/.host
+CREFL_FOLDER	= $(OUT_ENV)/.crefl
 OUT_OBJ 		= ../build/obj/host
 
 # ------ HOST OBJECTS ---------------
@@ -26,11 +27,11 @@ HOST_C := $(shell find $(HOST_SRC) -name "*.c")
 HOST_O := $(patsubst $(HOST_SRC)/%.c,$(OUT_OBJ)/%.o,$(HOST_C))
 
 # -------------- CREFL STUFF -------------------
-CRELF_FILE  = $(OUT_ENV_HOST)/host_types.crefl
-PY_GEN      = python3 ../dependencies/crefl/crefl_gen
-PY_INPUT    = $(shell find $(HOST_SRC) -name "*.h") $(shell find $(HOST_SRC) -name "*.c")
-CFLAGS_HOST_D += -DHOST_CREFL=\"$(CRELF_FILE)\"
-CFLAGS_HOST_R += -DHOST_CREFL=\"$(CRELF_FILE)\"
+CRELF_FILE  	= $(CREFL_FOLDER)/host_types.crefl
+PY_GEN      	= python3 ../dependencies/crefl/crefl_gen
+PY_INPUT   	 	= $(shell find $(HOST_SRC) -name "*.h") $(shell find $(HOST_SRC) -name "*.c")
+CFLAGS_HOST_D 	+= -DHOST_CREFL=\"$(CRELF_FILE)\"
+CFLAGS_HOST_R 	+= -DHOST_CREFL=\"$(CRELF_FILE)\"
 
 DEPS := $(HOST_O:.o=.d)
 
@@ -70,10 +71,10 @@ $(BIN_HOST): $(CRELF_FILE) $(HOST_O) | $(OUT_ENV_HOST)
 	$(Q)$(CC) $(CFLAGS) -o $@ $(HOST_O) $(LIBS)
 	@echo "$(PURPLE)(+) $@.$(WHITE)"
 
-$(CRELF_FILE): $(PY_INPUT) | $(OUT_ENV_HOST)
+$(CRELF_FILE): $(PY_INPUT) | $(CREFL_FOLDER) $(OUT_ENV_HOST)
 	$(Q)$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
 
-$(OUT_ENV) $(OUT_ENV_HOST) $(OUT_OBJ):
+$(OUT_ENV) $(CREFL_FOLDER) $(OUT_ENV_HOST) $(OUT_OBJ):
 	@mkdir -p $@ && echo "$(CYAN)(+) $@.$(WHITE)"
 
 -include $(DEPS)

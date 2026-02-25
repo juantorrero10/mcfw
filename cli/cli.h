@@ -23,6 +23,7 @@ extern long mark_modified_timestamp;
 void char_push(char_vec* v, char* s, size_t sz);
 void cache_file_checksums(char* src_folder, int rec_lvl);
 char** get_changed_files(char* src_folder, size_t* out_n_files);
+int update_checksum(char* binary_file);
 
 #define TERM_BY_SIGNAL (2 << 16)
 int run_subprocess(char* file, char** argv, int daemon, int quiet, int log);
@@ -62,6 +63,7 @@ typedef struct {
     uint32_t daemon;
     uint32_t create_log;
     uint32_t serial_comp;
+    uint32_t watch;
 } arg_flags;
 extern arg_flags g_flags;
 
@@ -70,6 +72,8 @@ extern arg_flags g_flags;
 #define APP_CONFIG_TYPE "app_config"
 #define APP_CONFIG_FILE "app_config.json"
 #define CACHE_DIR "._ccomp_cache__"
+#define CHECKSUM_FILE CACHE_DIR"/checksum"
+#define COMPILATION_RED_HERRING "./.host/dont_reload"
 
 
 #endif // COMMANDS_H_

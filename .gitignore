@@ -1,5 +1,6 @@
 app
 build
 dependencies
+update.sh
 .vscode
 todo.txt

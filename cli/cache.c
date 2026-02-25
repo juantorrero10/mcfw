@@ -12,6 +12,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <sys/mman.h>
 
 #include "cli.h"
 #include "log.h"
@@ -30,6 +31,63 @@ static inline int __is_dir(const char* path) {
     return S_ISDIR(st.st_mode);
 }
 
+static inline uint64_t checksumfile(const char* file) {
+    struct stat st;
+    if (stat(file, &st) != 0) {
+        log_fatal("Tried to checksum a non-existent file: %s", file);
+        _Exit(1);
+    }
+    int fd = open(file, O_RDONLY);
+    if (fd <= 0) {
+        log_fatal("Could open file '%s': %s", file, strerror(errno));
+        _Exit(1);
+    }
+
+    void* content = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (content == MAP_FAILED) {
+        close(fd);
+        return 0;
+    }
+
+    uint64_t hash = 5381;
+    uint8_t* ptr = (uint8_t*)content;
+    uint8_t* end = ptr + st.st_size;
+
+    while (ptr < end) {
+        hash = ((hash << 5) + hash) + *ptr++;
+    }
+
+    munmap(content, st.st_size);
+    close(fd);
+    return hash;
+}
+
+/**
+ * @brief Update checksum and returned whether it matched
+ */
+int update_checksum(char* binary_file) {
+    uint64_t cs = checksumfile(binary_file);
+    struct stat st;
+    if (stat(CHECKSUM_FILE, &st) == 0) {
+        int fd = open(CHECKSUM_FILE, O_RDWR);
+        if (fd <= 0) {
+            log_fatal("Couldn't update the checksum: %s", strerror(errno));
+            _Exit(1);
+        }
+        uint64_t old_cs;
+        read(fd, &old_cs, 8);
+        if (cs == old_cs) { close(fd); return 1; }
+        lseek(fd, 0, SEEK_SET);
+        write(fd, &cs, 8);
+        close(fd);
+        return 0;
+    }
+    int fd = creat(CHECKSUM_FILE, 0644);
+    assert(fd);
+    write(fd, &cs, 8);
+    close(fd);
+    return 0;
+}
 
 static inline int is_a_source_file(char* buff, size_t sz) {
     return (!memcmp(buff + sz - 2, ".c", 2));
@@ -105,13 +163,14 @@ __read_tok:
             else break;
         }
         if (!exists || st.st_mtime > mark_modified_timestamp || mark_modified_timestamp == -1) {
+            fclose(f);
             return 1;
         }
         ptr++;
         start_tok = ptr;
         goto __read_tok;
     }    
-
+    fclose(f);
     return 0;
 }
 
@@ -120,15 +179,18 @@ int has_changed(const char *fpath, const struct stat *sb,
     int tflag, struct FTW *ftwbuf
 ) {
     (void)sb; (void)ftwbuf;
+    size_t sz = 0;
     if (tflag == FTW_F) {
-        size_t sz = strlen(fpath);
+        sz = strlen(fpath);
         if (is_a_source_file((char*)fpath, sz)) {
             struct stat st;
+            if (g_flags.force_compile) {
+                goto __recompile;
+            }
             int e = stat(fpath, &st) == 0;
             // First check: recompile if timestamp is greater
             if (!e || mark_modified_timestamp == -1 || st.st_mtime > mark_modified_timestamp) {
-                char_push(&lcl_charvec, (char*)fpath, sz + 1);
-                lcl_charvec.str_amnt += 1;
+                goto __recompile;
             } else {
                 // Check for .d file
                 char buff[PATH_MAX];
@@ -136,12 +198,16 @@ int has_changed(const char *fpath, const struct stat *sb,
                 strcat(buff, fpath);
                 get_dep_name(buff + sizeof(CACHE_DIR) + sizeof("/obj/") - 2, sz);
                 if (deps_have_changed(buff)) {
-                    char_push(&lcl_charvec, (char*)fpath, sz + 1);
-                    lcl_charvec.str_amnt += 1;
+                    goto __recompile;
                 }
             }
         }
     }
+    return 0;
+
+__recompile:
+    char_push(&lcl_charvec, (char*)fpath, sz + 1);
+    lcl_charvec.str_amnt += 1;
     return 0; // Tell nftw to continue walking
 }
 

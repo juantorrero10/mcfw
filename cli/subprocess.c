@@ -6,9 +6,12 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <errno.h>
+#include <string.h>
 
 
 #include "cli.h"
+#include "log.h"
 
 
 static inline char* get_new_log_name() {
@@ -32,6 +35,8 @@ void log_cmd(char* file, char** argv) {
     fputc('\n', f);
     fclose(f);
 }
+
+extern volatile sig_atomic_t received_signal;
 
 /**
  * @param daemon run in background and return PID.
@@ -60,14 +65,54 @@ int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
     }
 
     if (!daemon) {
+        pid_t parent = getpgrp(); 
         if (isatty(STDIN_FILENO)) tcsetpgrp(STDIN_FILENO, pid);
         
-        waitpid(pid, &status, 0);
+        while(1) {
+            int r = waitpid(pid, &status, 0);
 
-        if (isatty(STDIN_FILENO)) tcsetpgrp(STDIN_FILENO, getpgrp());
+            if (r == -1) {
+                // Received a signal
+                if (errno == EINTR) {
+                    // If its not SIGUSR1, ignore
+                    if (!received_signal) continue;
+                    received_signal = 0; // reset
+                    // Get terminal
+                    if (isatty(STDIN_FILENO)) tcsetpgrp(STDIN_FILENO, parent);
+
+                    int status = cmd_build(1);
+                    // If compilation returned 0 or 2 don't reload.
+                    // 0 -> fail.
+                    // 2 -> files didn't changed and no compilation happened.
+                    if (status != 1) {
+                        // Produce a "red herring" indicator to tell the child to not do anything.
+
+                        int fd = creat(COMPILATION_RED_HERRING, 0644);
+                        if (fd < 0) {
+                            log_warn("Couldn't produce red-herring: %s", strerror(errno));
+                        } else {
+                            close(fd);
+                        }
+                    }
+
+                    if (isatty(STDIN_FILENO)) tcsetpgrp(STDIN_FILENO, pid);
+                    
+                    continue;
+                // actual error.
+                } else {
+                    log_fatal("Couldn't wait on child process: %s", strerror(errno));
+                    _exit(1);
+                }
+            }
+            break;
+        }
+
+        if (isatty(STDIN_FILENO)) tcsetpgrp(STDIN_FILENO, parent);
         if (WIFSIGNALED(status)) {
             int sig = WTERMSIG(status);
             return TERM_BY_SIGNAL + sig;
+        } else if (!WIFEXITED(status)) {
+            return 127;
         }
 
         return WEXITSTATUS(status);

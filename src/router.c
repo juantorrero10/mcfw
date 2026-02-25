@@ -10,8 +10,8 @@
 
 #include "private/types.h"
 #include "private/log.h"
+#include "private/router.h"
 
-extern uint32_t reload_version;
 
 typedef struct {
     uint32_t reload_version;
@@ -37,10 +37,28 @@ static void _append_router(router_table* t, router* r) {
         t->t.capacity *= 2;
     }
     router_table_entry te = (router_table_entry){.reload_version = reload_version, .router = *r};
+    free(r);
     memcpy((router_table_entry*)t->t.array + t->t.size++, &te, t->t.chunk_size);
 }
 
-static void _free_router_table() {free(g_router_table.t.array);}
+static void _router_destroy(router* r) {
+    for (size_t i = 0; i < r->entries.size; i++)
+    {
+        router_entry* re = (router_entry*)r->entries.array + i;
+        free(re->route_str.data);   
+    }
+    free(r->entries.array);
+}
+
+static void _free_router_table() {
+    for (size_t i = 0; i < g_router_table.t.size; i++)
+    {
+        router_table_entry* rte = (router_table_entry*)g_router_table.t.array + i;
+        _router_destroy(&rte->router);
+    }
+    
+    free(g_router_table.t.array);
+}
 
 void mcfw_register_router(router* r) {
     if (!r) {
