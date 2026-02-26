@@ -28,7 +28,7 @@ int main(int argc, const char** argv) {
 
     parse_args(argc, argv);
     g_app_config = load_config();
-    mlog_info("main", "loaded_config");
+    mlog_info(main, "loaded_config");
     atexit(__free_config);
 
     server_start();
@@ -79,7 +79,7 @@ static app_config* load_config() {
     
     FILE* f = fopen(APP_CONFIG_FILE, "r");
     if (!f) {
-        mlog_panic("mcfw_load_config", "Couldn't not open config file (%s): %s", APP_CONFIG_FILE, strerror(errno));
+        mlog_panic(load_config, "Couldn't not open config file (%s): %s", APP_CONFIG_FILE, strerror(errno));
         _exit(1);
         
     }
@@ -90,12 +90,12 @@ static app_config* load_config() {
     void* config_contents = malloc(cur + 1);
     size_t sz = fread(config_contents, cur, 1, f);
     if (sz == 0) {
-        mlog_panic("main", "Couldn't read app config %s", strerror(errno));
+        mlog_panic(main, "Couldn't read app config %s", strerror(errno));
     }
 
     DeserializeResult dr = deserialize_json(config_type, config_contents);
     if (dr.st != DR_OK) {
-        mlog_panic("mcfw_load_config", "Couldn't parse app configuration '%s'", dr.data.err_str);
+        mlog_panic(load_config, "Couldn't parse app configuration '%s'", dr.data.err_str);
         fclose(f);
         free(config_contents);
         _exit(1);

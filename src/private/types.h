@@ -4,7 +4,6 @@
 #include <crefl/types.h>
 #include "../public/types.h"
 
-
 typedef void* (*async_fn)(void*);
 
 typedef enum {

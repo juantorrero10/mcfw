@@ -38,11 +38,11 @@ void send_response_back(int fd, int code, u8_vec* buffer, u8_vec* body) {
     buffer->count = strlen((const char*)buffer->data); 
 
     ssize_t sz = io_timeout(ssize_t, asc_send(fd, buffer->data, buffer->count), 200, {
-        mlog_warn("client_handler", "<%d> timed out", fd);
+        mlog_warn(client_handler, "<%d> timed out", fd);
         return;
     });
     if (sz < 0) {
-        mlog_warn("client_handler", "couldn't send to client: %s", strerror(errno));
+        mlog_warn(client_handler, "couldn't send to client: %s", strerror(errno));
     }
 }
 
@@ -75,12 +75,24 @@ static inline void trim_buffer(u8_vec* str) {
 async(client_handler, int fd) {
     detach;
     int fd = clean_on_drop(arg(fd));
-    size_t version = APP_CURR_VERSION;
+
     char __b[1024];
     u8_vec buff = U8_VEC_NEW(__b, 1024);
+    
+    // Hot reloading: get the current version and get the most recent router.
+    size_t version = APP_CURR_VERSION;
+    app_context* c = load_get_ctx_with_version(version);
+    if (!c) { 
+        send_response_back(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, &U8_VEC_NULL);
+        task_return_void();
+    }
+    // Increase reference count the app ctx.
+    c->ref_count++;
+    router* rout = &c->router;
+    
 
-    ssize_t sz = io_timeout(ssize_t, asc_recv(fd, buff.data, buff.capacity), 10000, {
-        mlog_warn("client_handler", "<%d> timed out", fd);
+    ssize_t sz = io_timeout(ssize_t, asc_recv(fd, buff.data, buff.capacity), 60000, {
+        mlog_warn(client_handler, "<%d> timed out", fd);
         task_return_void();
     });
 
@@ -89,8 +101,8 @@ async(client_handler, int fd) {
     if (sz >= 0) {
         //mlog_info("client_handler", "Received from <%d>: %.*s", fd, U8_VEC_FORMAT(buff));
     } else {
-        mlog_error("client_handler", "Couldn't receive from client: %s", strerror(errno));
-        task_return_void();
+        mlog_error(client_handler, "Couldn't receive from client: %s", strerror(errno));
+        goto __dec_rc_and_exit;
     }
 
     if (sz == 0) {
@@ -100,7 +112,7 @@ async(client_handler, int fd) {
     uint8_t* space = (uint8_t*)strchr((char*)buff.data, ' ');
     if (!space) {
         send_response_back(fd, HTTP_BAD_REQUEST, &buff, &U8_VEC_NULL);
-        task_return_void();
+        goto __dec_rc_and_exit;
     }
     size_t method_sz = (size_t)(space - buff.data);
     u8_vec method = U8_VEC_SUBSTR(buff.data, 0, method_sz);
@@ -109,25 +121,29 @@ async(client_handler, int fd) {
     trim_buffer(&route);
 
 
-    routing_result r = router_get_handler(&method, &route, version);
+    routing_result r = router_get_handler(rout, &method, &route);
 
     if (r.st == MCFW_OK) {
         http_response* res =  await_ret(http_response*, spawn_task_on_fptr(r.data.method_fptr, NULL));
         if (!res) { 
             send_response_back(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, &U8_VEC_NULL);
-            mlog_error("client_handler", "null ptr received from method: %.*s", U8_VEC_FORMAT(method)); 
-            task_return_void(); 
+            mlog_error(client_handler, "null ptr received from method: %.*s", U8_VEC_FORMAT(method)); 
+            goto __dec_rc_and_exit;
         } else if (res->signature != HTTP_RES_SIGNATURE) {
-            mlog_error("client_handler", "http response received from method: %.*s is garbage", U8_VEC_FORMAT(method));
+            mlog_error(client_handler, "http response received from method: %.*s is garbage", U8_VEC_FORMAT(method));
         }
         send_response_back(fd, res->code, &buff, &res->buff);
         free(res->buff.data);
         free(res);
-        task_return_void();
+        goto __dec_rc_and_exit;
     }
 
     send_response_back(fd, r.data.err, &buff, &U8_VEC_NULL);
 
+__dec_rc_and_exit:
+    c->ref_count--;
+    if (c->ref_count == 0 && APP_CURR_VERSION != version)
+        load_drop_ctx(c);
     end_return_void();
 }
 
@@ -135,7 +151,7 @@ async(accept_loop, tcp_listener_t* t) {
     tcp_listener_t* t = arg(t);
     int shutdown_payload;
     oneshot_pair_t graceful_shutdown = oneshot_new(sizeof(int), 0);
-    mlog_info("accept_loop", "Listening on %hhu.%hhu.%hhu.%hhu:%hu", 
+    mlog_info(accept_loop, "Listening on %hhu.%hhu.%hhu.%hhu:%hu", 
         t->ip_addr[0],
         t->ip_addr[1],
         t->ip_addr[2],
@@ -150,7 +166,7 @@ async(accept_loop, tcp_listener_t* t) {
                 asc_oneshot_recv((oneshot_rx_t)graceful_shutdown, &shutdown_payload),
                 asc_tcp_accept(t)).cut_losers(), 
             {
-                mlog_warn("accept_loop", "Triggered server graceful shutdown, payload: 0x%X", shutdown_payload);
+                mlog_warn(accept_loop, "Triggered server graceful shutdown, payload: 0x%X", shutdown_payload);
                 break;
             }
         );
@@ -177,23 +193,22 @@ static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg) {
 
 decl_async(void, hot_reload_watch);
 
-async(server_set_tcp, app_config* config) {
-    app_config* config = arg(config);
+async(server_set_tcp) {
     uint8_t addr[4];
-    uint16_t port = config->host.port;
-    memcpy(addr, &config->host.addr, 4);
+    uint16_t port = g_app_config->host.port;
+    memcpy(addr, &g_app_config->host.addr, 4);
 
     // Let the reflection engine work on this thread
     refl_threadlocal_init(0);
 
     tcp_listener_t* t = clean_on_drop(asc_tcp_bind(addr, port));
     if (!t) {
-        mlog_panic("server_set_tcp", "couldn't create tcp listener: %s", strerror(errno));
+        mlog_panic(server_set_tcp, "couldn't create tcp listener: %s", strerror(errno));
         task_return(int, 1);
     }
 
 
-    load_app(config);
+    load_app();
     task_handle_t t_watcher;
     if (g_args.hr_enabled) t_watcher = task_spawn(hot_reload_watch);
     await(task_spawn(accept_loop, .t = t));
@@ -206,7 +221,7 @@ async(server_set_tcp, app_config* config) {
 void server_start() {
 
 
-    worker_t* w = worker_create(1, task_entry(server_set_tcp, .config = g_app_config));
+    worker_t* w = worker_create(1, task_entry(server_set_tcp));
     if (g_args.no_ss) {
         worker_disable_sigsegv(w);
     }
@@ -215,6 +230,6 @@ void server_start() {
     if (exit_code != 0) {
         _Exit(exit_code);
     } 
-    mlog_info("server_start", "Server closed.");
+    mlog_info(server_start, "Server closed.");
     worker_destroy(w);
 }

@@ -16,6 +16,8 @@
 #include <fcntl.h>
 #include <time.h>
 
+#define MAX(a, b) ((a) > (b))? (a) : (b)
+
 
 #define CC "gcc"
 #define DEPENDENCIES_FOLDER "../dependencies"
@@ -55,7 +57,7 @@ static void render_progress_bar(prog_bar* b, char* cur_item) {
     int completed_chars = (int)(30 * percent);
     int arrow = b->completed < b->n_tasks;
     log_inprogress(b->op_name, "[%.*s%.*s%.*s] %d%%   %s",
-        completed_chars, e, arrow, ">", 30 - 1 - completed_chars, s, (int)(percent * 100), cur_item);
+        completed_chars, e, arrow, ">", MAX(30 - 1 - completed_chars, 0), s, (int)(percent * 100), cur_item);
     
 }
 
@@ -295,10 +297,10 @@ __link:
         goto __exit;
     }
     if (recompilation) {
-        if (update_checksum(TEMP_OUTPUT)) {
-            log_okay("Output did not change."); 
-            ret = 2;
-        } else log_okay("Recompiled.");
+        if (update_checksum(TEMP_OUTPUT))
+            ret = 2; 
+        printf("\033[K");
+        fflush(stdout);
     } else {
         log_okay("Linking succesful.");
     }

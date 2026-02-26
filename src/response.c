@@ -9,7 +9,7 @@ http_response* http_response_create(http_status_code c, http_content_type res_ty
     (void)__type;
     r->signature = HTTP_RES_SIGNATURE;
     if (res_type != CONTENT_TEXT) { 
-        mlog_warn("http_response_create", "only text supported.");
+        mlog_warn(http_response_create, "only text supported.");
         r->buff = U8_VEC_NULL;
         r->code = HTTP_OK;
         r->type = CONTENT_TEXT;

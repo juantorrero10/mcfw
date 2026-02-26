@@ -36,12 +36,7 @@ static int _get_req_from_str(u8_vec* method) {
 /**
  * @todo hash table
  */
-routing_result router_get_handler(u8_vec* method, u8_vec* route, uint32_t version) {
-    mlog_info("router_get_handler", "method: %.*s, route: %.*s", U8_VEC_FORMAT(*method), U8_VEC_FORMAT(*route));
-
-    app_context* c = load_get_ctx_with_version(version);
-    if (!c) return ROUT_RET_ERR(HTTP_INTERNAL_SERVER_ERROR);
-    router* r = &c->router;
+routing_result router_get_handler(router* r, u8_vec* method, u8_vec* route) {
 
     for (size_t i = 0; i < r->entries.size; i++)
     {

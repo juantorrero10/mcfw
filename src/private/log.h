@@ -41,23 +41,23 @@ extern mcfw_arg_config g_args;
 #define mlog_info(place, msg, ...) do{\
     if (g_args.log_level > LOG_LEVEL_INFO) break;\
     _get_time_str(g_time_buffer);\
-    printf("mcfw: " COLOR_GREY"[%s]" COLOR_CYAN " INFO" COLOR_WHITE " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" COLOR_CYAN " INFO" COLOR_WHITE " ("#place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
 } while(0)
 
 #define mlog_warn(place, msg, ...) do{\
     if (g_args.log_level > LOG_LEVEL_WARN) break;\
     _get_time_str(g_time_buffer);\
-    printf("mcfw: " COLOR_GREY"[%s]" COLOR_YELLOW " WARN" COLOR_WHITE " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" COLOR_YELLOW " WARN" COLOR_WHITE " ("#place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
 } while(0)
 
 #define mlog_error(place, msg, ...) do{\
     _get_time_str(g_time_buffer);\
-    printf("mcfw: " COLOR_GREY"[%s]" COLOR_RED " ERROR" COLOR_WHITE " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer,##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" COLOR_RED " ERROR" COLOR_WHITE " ("#place"): "msg""COLOR_RESET"\r\n", g_time_buffer,##__VA_ARGS__);\
 } while(0)
 
 #define mlog_panic(place, msg, ...) do{\
     _get_time_str(g_time_buffer);\
-    printf("mcfw: " COLOR_GREY"[%s]" STYLE_BOLD"" COLOR_BRIGHT_RED " PANIC" COLOR_RESET " ("place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" STYLE_BOLD"" COLOR_BRIGHT_RED " PANIC" COLOR_RESET " ("#place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
 } while(0)
 
 

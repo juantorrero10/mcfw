@@ -23,10 +23,11 @@
 decl_async(void, hot_reload_watch);
 
 #define INITIAL_CONTEXES_CAPACITY 4
+#define APP_RELOAD_VER_INITIAL_VAL (uint32_t)-1
 
 app_context_table g_app_context_table = {0};
 
-uint32_t g_curr_reload_version = (uint32_t)-1;
+uint32_t g_curr_reload_version = APP_RELOAD_VER_INITIAL_VAL;
 
 async_(hot_reload_watch) {
     detach;
@@ -47,11 +48,8 @@ async_(hot_reload_watch) {
         char* file_changed;
         await(asc_inotify((char*[]){HOST_FOLDER, NULL}, &file_changed, 1, IN_MOVED_TO | IN_CLOSE_WRITE | IN_CREATE));
         if(!strcmp(file_changed, APP_SO)) {       
-            /** @todo actually reload */ 
-            mlog_info("hot_reload_watch", "recompile");
-            (void)file_changed;
+            load_app();
         } else if (!strcmp(file_changed, COMPILATION_RED_HERRING)){
-            mlog_info("hot_reload_watch", "cancelled");
             remove(COMPILATION_RED_HERRING);
         }
         free(file_changed);
@@ -67,8 +65,7 @@ static void _append_context(app_context_table* t, app_context* ctx) {
     {
         if (t->occupied[i] == 0) {found_idx = i; break;}
     }
-    printf("found_idx: %zu\n", found_idx);
-    
+
     if (found_idx == (size_t)-1) {
         size_t old_c = t->t.capacity;
         t->t.capacity *= 2;
@@ -80,12 +77,16 @@ static void _append_context(app_context_table* t, app_context* ctx) {
         found_idx = old_c;
     }
 
-    printf("found_idx: %zu\n", found_idx);
-
     assert(found_idx != (size_t)-1);
     memcpy((app_context*)t->t.array + found_idx, ctx, sizeof(app_context));
     t->occupied[found_idx] = 1;
     t->t.size++;
+    
+}
+
+static inline void _free_context(app_context* c) {
+    router_destroy(&c->router);
+    dlclose(c->dl_handle);
 }
 
 
@@ -93,9 +94,7 @@ static void _free_contexes_table() {
     for (size_t i = 0; i < APP_CTX_TABLE.t.capacity; i++)
     {
         if (APP_CTX_TABLE.occupied[i] != 1) continue;
-        app_context* rte = (app_context*)APP_CTX_TABLE.t.array + i;
-        router_destroy(&rte->router);
-        dlclose(rte->dl_handle);
+        _free_context((app_context*)APP_CTX_TABLE.t.array + i);
     }
     
     free(APP_CTX_TABLE.t.array);
@@ -123,45 +122,76 @@ static void _register_context(router* r, void* dl_handle) {
     _append_context(&g_app_context_table, &c);
 }
 
-int load_app(app_config* config) {
-    void* app_handle = dlopen(APP_SO, RTLD_LAZY | RTLD_LOCAL);
+int load_app() {
+
+    if (APP_CURR_VERSION != APP_RELOAD_VER_INITIAL_VAL) {
+        // If there are no more clients, free the old context
+        app_context* a = load_get_ctx_with_version(APP_CURR_VERSION);
+        if (a->ref_count == 0) load_drop_ctx(a);
+    }
+
+    // Increase version
+    APP_CURR_VERSION += 1;
+
+    // Copy binary to get around dlopen() "lazyness"
+    char unique_name[64];
+    snprintf(unique_name, 64, APP_LIBS_PREFIX"_v%u.so", APP_CURR_VERSION);
+    link(APP_SO, unique_name);
+
+    void* app_handle = dlopen(unique_name, RTLD_NOW | RTLD_LOCAL);
     if (!app_handle) {
-        mlog_error("load_app","Couldn't load application: %s", dlerror());
+        mlog_error(load_app,"Couldn't load application: %s", dlerror());
+        unlink(unique_name);
         return 0;
     }
-    app_entry_fn entry_point = dlsym(app_handle, config->app.entry_point);
+    unlink(unique_name);
+
+    app_entry_fn entry_point = dlsym(app_handle, g_app_config->app.entry_point);
     if (!entry_point) {
-        mlog_error("load_app","Couldn't find application entry point. %s", dlerror());
+        mlog_error(load_app,"Couldn't find application entry point. %s", dlerror());
         return 0;
     }
     // Call app entry.
     router* r = entry_point();
     if (!r) {
-        mlog_error("load_app", "null pointer received from entry point");
+        mlog_error(load_app, "null pointer received from entry point");
         return 0;
     }
 
     if (r->signature != ROUTER_SIGNATURE) {
-        mlog_error("load_app", "pointer received from entry point (%p) was not a router ", r);
+        mlog_error(load_app, "pointer received from entry point (%p) was not a router ", r);
         return 0;
     }
-    // Increase version
-    APP_CURR_VERSION += 1;
-
 
     _register_context(r, app_handle);
     return 1;
 }
 
 app_context* load_get_ctx_with_version(uint32_t ver) {
-    mlog_info("ll", "hey");
+    app_context* rte = NULL;
     for (size_t i = 0; i < APP_CTX_TABLE.t.capacity; i++)
     {
         if (APP_CTX_TABLE.occupied[i] == 0) continue;
-        app_context* rte = &((app_context*)APP_CTX_TABLE.t.array)[i];
+        rte = (app_context*)APP_CTX_TABLE.t.array + i;
         if (rte->reload_version == ver) {
             return rte;
         }
     }
     return NULL;
+}
+
+/**
+ * @brief Free an app context from the table. 
+ */
+void load_drop_ctx(app_context*  a) {
+    // Assert that this is actually a pointer from the table, 
+    assert(a >= (app_context*)APP_CTX_TABLE.t.array && a < (app_context*)APP_CTX_TABLE.t.array + APP_CTX_TABLE.t.capacity);
+    
+    size_t idx = (size_t)((void*)a - (void*)APP_CTX_TABLE.t.array);
+
+    _free_context(a);
+
+    // Mark as free;
+    APP_CTX_TABLE.occupied[idx] = 0;
+
 }
