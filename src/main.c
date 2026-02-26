@@ -87,8 +87,9 @@ static app_config* load_config() {
     size_t cur = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    void* config_contents = malloc(cur + 1);
+    char* config_contents = malloc(cur + 1);
     size_t sz = fread(config_contents, cur, 1, f);
+    config_contents[cur] = '\0';
     if (sz == 0) {
         mlog_panic("Couldn't read app config %s", strerror(errno));
     }

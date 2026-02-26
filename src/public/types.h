@@ -23,9 +23,9 @@ typedef struct {
     (u8_vec){.data = (uint8_t*)_buffer, .count = 0, .capacity = _cap };\
 })
 
-#define U8_VEC_STR(_buffer) ({\
-    size_t __s = strlen(_buffer);\
-    U8_VEC(_buffer, __s);\
+#define U8_VEC_STR(_null_term_str) ({\
+    size_t __s = strlen(_null_term_str);\
+    U8_VEC(_null_term_str, __s);\
 })
 
 #define U8_VEC_SUBSTR(_buffer, start, end) ({\

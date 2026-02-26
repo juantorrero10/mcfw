@@ -76,7 +76,7 @@ extern arg_flags g_flags;
 #define CHECKSUM_FILE CACHE_DIR"/checksum"
 #define COMPILATION_RED_HERRING "./.host/dont_reload"
 
-#define COMPERR_REDIRECT "recomp-gcc.log"
+#define COMPERR_REDIRECT "comp-out.log"
 
 
 #endif // COMMANDS_H_

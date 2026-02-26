@@ -29,7 +29,7 @@ uint32_t APP_CURR_VERSION = APP_RELOAD_VER_INITIAL_VAL;
 async_(version_watch_async) {
     detach;
     pid_t parent_pid = getppid();
-    char* watch_folder = (char*)g_app_config->app.source_folder;
+    char* watch_folder = (char*)APP_CONFIG_STRUCT->app.source_folder;
     char* files[] = {watch_folder, NULL};
 
     while(1) {
@@ -83,6 +83,7 @@ static void _append_context(app_context_table* t, app_context* ctx) {
 
 static inline void _free_context(app_context* c) {
     router_destroy(&c->router);
+    
     dlclose(c->dl_handle);
 }
 
@@ -95,6 +96,7 @@ static void _free_contexes_table() {
     }
     
     free(APP_CTX_TABLE.t.array);
+    free(APP_CTX_TABLE.occupied);
 }
 
 static void _register_context(router* r, void* dl_handle) {
@@ -112,9 +114,9 @@ static void _register_context(router* r, void* dl_handle) {
 int load_app() {
 
     // Increase version
-    APP_CURR_VERSION += 1;
+    uint32_t next_version = APP_CURR_VERSION + 1;
 
-    // Alocate table if is not set
+    // Alocate table if is not set yet
     if (!APP_CTX_TABLE.t.array) {
         APP_CTX_TABLE.t = (r_array_t){
             .array = calloc(sizeof(app_context), INITIAL_CONTEXES_CAPACITY),
@@ -129,8 +131,9 @@ int load_app() {
 
     // Hard link binary to a diferent name to get around dlopen() "lazyness"
     char unique_name[64];
-    snprintf(unique_name, 64, APP_LIBS_PREFIX"_v%u.so", APP_CURR_VERSION);
-    link(APP_SO, unique_name);
+    snprintf(unique_name, 64, APP_LIBS_PREFIX"_v%u.so", next_version);
+    int n = link(APP_SO, unique_name);
+    (void)n;
 
     void* app_handle = dlopen(unique_name, RTLD_NOW | RTLD_LOCAL);
     if (!app_handle) {
@@ -141,7 +144,7 @@ int load_app() {
     }
     unlink(unique_name);
 
-    app_entry_fn entry_point = dlsym(app_handle, g_app_config->app.entry_point);
+    app_entry_fn entry_point = dlsym(app_handle, APP_CONFIG_STRUCT->app.entry_point);
     if (!entry_point) {
         mlog_error("Couldn't find application entry point. %s", dlerror());
         goto __exit_dont_apply;
@@ -159,19 +162,22 @@ int load_app() {
         goto __exit_dont_apply;
     }
 
+    
     // Drop old version
-    if (APP_CURR_VERSION - 1 != APP_RELOAD_VER_INITIAL_VAL) {
+    if (APP_CURR_VERSION != APP_RELOAD_VER_INITIAL_VAL) {
         // If there are no more clients, free the old context
-        app_context* a = version_get_ctx(APP_CURR_VERSION - 1);
-        if (a && a->ref_count == 0) version_drop_ctx(a);
+        app_context* a = version_get_ctx(APP_CURR_VERSION);
+        assert(a);
+        if (a->ref_count == 0) version_drop_ctx(a);
     }
+
+    APP_CURR_VERSION = next_version;
 
     _register_context(r, app_handle);
     return 1;
 
 __exit_dont_apply:
     if (app_handle) dlclose(app_handle);
-    APP_CURR_VERSION--; // Revert
     return 0;
 }
 

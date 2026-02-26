@@ -148,7 +148,7 @@ __dec_rc_and_exit:
 async(accept_loop, tcp_listener_t* t) {
     tcp_listener_t* t = arg(t);
     int shutdown_payload;
-    oneshot_pair_t graceful_shutdown = oneshot_new(sizeof(int), 0);
+    oneshot_pair_t graceful_shutdown = oneshot_new(sizeof(int), 1);
     mlog_info("Listening on %hhu.%hhu.%hhu.%hhu:%hu", 
         t->ip_addr[0],
         t->ip_addr[1],
@@ -159,10 +159,10 @@ async(accept_loop, tcp_listener_t* t) {
     g_shutdown_tx = oneshot_move_tx(graceful_shutdown);
     while(1) {
         int client_fd = any_expect_winner_or(
-            int, 1,
+            int, 0,
             await_any(
-                asc_oneshot_recv((oneshot_rx_t)graceful_shutdown, &shutdown_payload),
-                asc_tcp_accept(t)).cut_losers(), 
+                asc_tcp_accept(t),
+                asc_oneshot_recv((oneshot_rx_t)graceful_shutdown, &shutdown_payload)).cut_losers(),
             {
                 mlog_warn("Triggered server graceful shutdown, payload: 0x%X", shutdown_payload);
                 break;
@@ -173,6 +173,7 @@ async(accept_loop, tcp_listener_t* t) {
         }
     }
     oneshot_drop_rx((oneshot_rx_t)graceful_shutdown);
+    oneshot_assert_closed(graceful_shutdown);
     end_return_void();
 }
 
