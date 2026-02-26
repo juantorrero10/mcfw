@@ -36,28 +36,27 @@ void _get_time_str(char* buff);
 #define LOG_LEVEL_ERROR 2
 
 extern char g_time_buffer[];
-extern mcfw_arg_config g_args;
 
-#define mlog_info(place, msg, ...) do{\
-    if (g_args.log_level > LOG_LEVEL_INFO) break;\
+#define mlog_info(msg, ...) do{\
+    if (ARG_FLAGS.log_level > LOG_LEVEL_INFO) break;\
     _get_time_str(g_time_buffer);\
-    printf("mcfw: " COLOR_GREY"[%s]" COLOR_CYAN " INFO" COLOR_WHITE " ("#place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" COLOR_CYAN " INFO" COLOR_WHITE " (%s): "msg""COLOR_RESET"\r\n", g_time_buffer, __FUNCTION__, ##__VA_ARGS__);\
 } while(0)
 
-#define mlog_warn(place, msg, ...) do{\
-    if (g_args.log_level > LOG_LEVEL_WARN) break;\
+#define mlog_warn(msg, ...) do{\
+    if (ARG_FLAGS.log_level > LOG_LEVEL_WARN) break;\
     _get_time_str(g_time_buffer);\
-    printf("mcfw: " COLOR_GREY"[%s]" COLOR_YELLOW " WARN" COLOR_WHITE " ("#place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" COLOR_YELLOW " WARN" COLOR_WHITE " (%s): "msg""COLOR_RESET"\r\n", g_time_buffer, __FUNCTION__, ##__VA_ARGS__);\
 } while(0)
 
-#define mlog_error(place, msg, ...) do{\
+#define mlog_error(msg, ...) do{\
     _get_time_str(g_time_buffer);\
-    printf("mcfw: " COLOR_GREY"[%s]" COLOR_RED " ERROR" COLOR_WHITE " ("#place"): "msg""COLOR_RESET"\r\n", g_time_buffer,##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" COLOR_RED " ERROR" COLOR_WHITE " (%s): "msg""COLOR_RESET"\r\n", g_time_buffer, __FUNCTION__,##__VA_ARGS__);\
 } while(0)
 
-#define mlog_panic(place, msg, ...) do{\
+#define mlog_panic(msg, ...) do{\
     _get_time_str(g_time_buffer);\
-    printf("mcfw: " COLOR_GREY"[%s]" STYLE_BOLD"" COLOR_BRIGHT_RED " PANIC" COLOR_RESET " ("#place"): "msg""COLOR_RESET"\r\n", g_time_buffer, ##__VA_ARGS__);\
+    printf("mcfw: " COLOR_GREY"[%s]" STYLE_BOLD"" COLOR_BRIGHT_RED " PANIC" COLOR_RESET " (%s): "msg""COLOR_RESET"\r\n", g_time_buffer, __FUNCTION__,##__VA_ARGS__);\
 } while(0)
 
 

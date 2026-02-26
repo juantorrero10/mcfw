@@ -37,6 +37,10 @@ REFLECT(struct) {
 #define APP_SO                   APP_LIBS_PREFIX".so"
 #define COMPILATION_RED_HERRING HOST_FOLDER"/dont_reload"
 
-extern app_config* g_app_config;
+#define ARG_FLAGS g_args
+#define APP_CONFIG_STRUCT g_app_config
+
+extern mcfw_arg_config ARG_FLAGS;
+extern app_config* APP_CONFIG_STRUCT;
 
 #endif // CONFIGS_H_

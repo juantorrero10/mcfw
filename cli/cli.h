@@ -64,6 +64,7 @@ typedef struct {
     uint32_t create_log;
     uint32_t serial_comp;
     uint32_t watch;
+    uint32_t silent_recomp;
 } arg_flags;
 extern arg_flags g_flags;
 
@@ -74,6 +75,8 @@ extern arg_flags g_flags;
 #define CACHE_DIR "._ccomp_cache__"
 #define CHECKSUM_FILE CACHE_DIR"/checksum"
 #define COMPILATION_RED_HERRING "./.host/dont_reload"
+
+#define RECOMP_REDIRECT "recomp-gcc.log"
 
 
 #endif // COMMANDS_H_

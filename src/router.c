@@ -12,7 +12,7 @@
 #include "private/types.h"
 #include "private/log.h"
 #include "private/router.h"
-#include "private/load.h"
+#include "private/version.h"
 
 #define ROUT_RET_ERR(_err) (routing_result){.data.err = (_err), .st = MCFW_ERR};
 #define ROUT_RET_OK(_fptr) (routing_result){.data.method_fptr = (_fptr), .st = MCFW_OK};
@@ -68,6 +68,7 @@ router* router_create(router_entry* entries, size_t amount) {
 }
 
 void router_destroy(router* r) {
+    if (r->signature != ROUTER_SIGNATURE) return;
     for (size_t i = 0; i < r->entries.size; i++)
     {
         router_entry* re = (router_entry*)r->entries.array + i;

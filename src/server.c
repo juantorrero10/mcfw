@@ -1,7 +1,5 @@
-#include <dlfcn.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/inotify.h>
 
 #include <asclib/core.h>
 #include <asclib/net/tcp.h>
@@ -15,7 +13,7 @@
 #include "public/types.h"
 #include "public/router.h"
 #include "private/router.h"
-#include "private/load.h"
+#include "private/version.h"
 
 
 oneshot_tx_ref_t g_shutdown_tx;
@@ -38,11 +36,11 @@ void send_response_back(int fd, int code, u8_vec* buffer, u8_vec* body) {
     buffer->count = strlen((const char*)buffer->data); 
 
     ssize_t sz = io_timeout(ssize_t, asc_send(fd, buffer->data, buffer->count), 200, {
-        mlog_warn(client_handler, "<%d> timed out", fd);
+        mlog_warn("<%d> timed out", fd);
         return;
     });
     if (sz < 0) {
-        mlog_warn(client_handler, "couldn't send to client: %s", strerror(errno));
+        mlog_warn("couldn't send to client: %s", strerror(errno));
     }
 }
 
@@ -81,7 +79,7 @@ async(client_handler, int fd) {
     
     // Hot reloading: get the current version and get the most recent router.
     size_t version = APP_CURR_VERSION;
-    app_context* c = load_get_ctx_with_version(version);
+    app_context* c = version_get_ctx(version);
     if (!c) { 
         send_response_back(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, &U8_VEC_NULL);
         task_return_void();
@@ -92,7 +90,7 @@ async(client_handler, int fd) {
     
 
     ssize_t sz = io_timeout(ssize_t, asc_recv(fd, buff.data, buff.capacity), 60000, {
-        mlog_warn(client_handler, "<%d> timed out", fd);
+        mlog_warn("<%d> timed out", fd);
         task_return_void();
     });
 
@@ -101,7 +99,7 @@ async(client_handler, int fd) {
     if (sz >= 0) {
         //mlog_info("client_handler", "Received from <%d>: %.*s", fd, U8_VEC_FORMAT(buff));
     } else {
-        mlog_error(client_handler, "Couldn't receive from client: %s", strerror(errno));
+        mlog_error("Couldn't receive from client: %s", strerror(errno));
         goto __dec_rc_and_exit;
     }
 
@@ -127,10 +125,10 @@ async(client_handler, int fd) {
         http_response* res =  await_ret(http_response*, spawn_task_on_fptr(r.data.method_fptr, NULL));
         if (!res) { 
             send_response_back(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, &U8_VEC_NULL);
-            mlog_error(client_handler, "null ptr received from method: %.*s", U8_VEC_FORMAT(method)); 
+            mlog_error("null ptr received from method: %.*s", U8_VEC_FORMAT(method)); 
             goto __dec_rc_and_exit;
         } else if (res->signature != HTTP_RES_SIGNATURE) {
-            mlog_error(client_handler, "http response received from method: %.*s is garbage", U8_VEC_FORMAT(method));
+            mlog_error("http response received from method: %.*s is garbage", U8_VEC_FORMAT(method));
         }
         send_response_back(fd, res->code, &buff, &res->buff);
         free(res->buff.data);
@@ -143,7 +141,7 @@ async(client_handler, int fd) {
 __dec_rc_and_exit:
     c->ref_count--;
     if (c->ref_count == 0 && APP_CURR_VERSION != version)
-        load_drop_ctx(c);
+        version_drop_ctx(c);
     end_return_void();
 }
 
@@ -151,7 +149,7 @@ async(accept_loop, tcp_listener_t* t) {
     tcp_listener_t* t = arg(t);
     int shutdown_payload;
     oneshot_pair_t graceful_shutdown = oneshot_new(sizeof(int), 0);
-    mlog_info(accept_loop, "Listening on %hhu.%hhu.%hhu.%hhu:%hu", 
+    mlog_info("Listening on %hhu.%hhu.%hhu.%hhu:%hu", 
         t->ip_addr[0],
         t->ip_addr[1],
         t->ip_addr[2],
@@ -166,7 +164,7 @@ async(accept_loop, tcp_listener_t* t) {
                 asc_oneshot_recv((oneshot_rx_t)graceful_shutdown, &shutdown_payload),
                 asc_tcp_accept(t)).cut_losers(), 
             {
-                mlog_warn(accept_loop, "Triggered server graceful shutdown, payload: 0x%X", shutdown_payload);
+                mlog_warn("Triggered server graceful shutdown, payload: 0x%X", shutdown_payload);
                 break;
             }
         );
@@ -189,31 +187,27 @@ static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg) {
     return __task_create(te);
 }
 
-
-
-decl_async(void, hot_reload_watch);
-
 async(server_set_tcp) {
     uint8_t addr[4];
-    uint16_t port = g_app_config->host.port;
-    memcpy(addr, &g_app_config->host.addr, 4);
+    uint16_t port = APP_CONFIG_STRUCT->host.port;
+    memcpy(addr, &APP_CONFIG_STRUCT->host.addr, 4);
 
     // Let the reflection engine work on this thread
     refl_threadlocal_init(0);
 
     tcp_listener_t* t = clean_on_drop(asc_tcp_bind(addr, port));
     if (!t) {
-        mlog_panic(server_set_tcp, "couldn't create tcp listener: %s", strerror(errno));
+        mlog_panic("couldn't create tcp listener: %s", strerror(errno));
         task_return(int, 1);
     }
 
 
     load_app();
     task_handle_t t_watcher;
-    if (g_args.hr_enabled) t_watcher = task_spawn(hot_reload_watch);
+    if (ARG_FLAGS.hr_enabled) t_watcher = task_spawn(version_watch_async);
     await(task_spawn(accept_loop, .t = t));
 
-    if (g_args.hr_enabled) drop_task(t_watcher);
+    if (ARG_FLAGS.hr_enabled) drop_task(t_watcher);
     end_return(int, 0);
 }
 
@@ -222,7 +216,7 @@ void server_start() {
 
 
     worker_t* w = worker_create(1, task_entry(server_set_tcp));
-    if (g_args.no_ss) {
+    if (ARG_FLAGS.no_ss) {
         worker_disable_sigsegv(w);
     }
     worker_run(w);
@@ -230,6 +224,6 @@ void server_start() {
     if (exit_code != 0) {
         _Exit(exit_code);
     } 
-    mlog_info(server_start, "Server closed.");
+    mlog_info("Server closed.");
     worker_destroy(w);
 }
