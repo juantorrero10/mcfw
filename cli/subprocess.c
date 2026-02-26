@@ -41,8 +41,8 @@ extern volatile sig_atomic_t received_signal;
 /**
  * @param daemon run in background and return PID.
  */
-int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
-    (void)start_logging;
+int run_subprocess(char* file, char** argv, int daemon, char* redir_stdout, char* redir_stderr, int log) {
+    (void)start_logging; (void)log;
     int status = 0;
     log_cmd(file, argv);
 
@@ -54,11 +54,15 @@ int run_subprocess(char* file, char** argv, int daemon, int quiet, int log) {
     if (!pid) {
         signal(SIGINT, SIG_DFL);
 
-        if (quiet && !log) {
-            int devnull = open("/dev/null", O_WRONLY, 0);
-            dup2(devnull, STDOUT_FILENO);
-            dup2(devnull, STDERR_FILENO);
-            close(devnull);
+        if (redir_stdout) {
+            int new = open(redir_stdout, O_WRONLY | O_CREAT | O_APPEND, 0);
+            dup2(new, STDOUT_FILENO);
+            close(new);
+        }
+        if (redir_stderr) {
+            int new = open(redir_stderr, O_WRONLY | O_CREAT | O_APPEND, 0);
+            dup2(new, STDERR_FILENO);
+            close(new);
         }
         execvp(file, argv);
         assert(0);

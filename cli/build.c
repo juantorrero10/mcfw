@@ -75,7 +75,7 @@ static int compile_obj(char* file, char** flags) {
     sprintf(buff, "./"CACHE_DIR"/obj/%s", out_file);
     flags[STATIC_AMNT] = buff;
 
-    int r = run_subprocess(CC, flags, 1, 0, 0);
+    int r = run_subprocess(CC, flags, 1, NULL, (g_flags.silent_comp)? COMPERR_REDIRECT : NULL, 0);
     free(out_file);
     flags[STATIC_AMNT] = NULL;
     return r;
@@ -107,7 +107,7 @@ static int link_objects(char* obj_list, size_t n_objects) {
     prog_bar p = {.op_name = "Linking", .n_tasks = 1, .completed = 0};
     render_progress_bar(&p, TARGET_SO);
 
-    int r = run_subprocess(CC, link_argv, 0, 0, 0);
+    int r = run_subprocess(CC, link_argv, 0, NULL, NULL, 0);
     free(link_argv);
     if (r != 0) return 0;
     p.completed++;
@@ -183,6 +183,9 @@ int cmd_build(int recompilation) {
     if (e && !S_ISDIR(st.st_mode)) {
         mark_modified_timestamp = st.st_mtime;
     }
+
+    // Create and truncate the log
+    if (g_flags.silent_comp) close(creat(COMPERR_REDIRECT, 0644));
 
     app_config* c = g_app_config;
 
@@ -267,7 +270,9 @@ int cmd_build(int recompilation) {
         pid_t pid;
         if (!(pid = wait_one(&n_jobs))) {
             wait_all(&n_jobs);
-            log_fatal("One of the compilations failed.");
+            (recompilation && g_flags.silent_comp)
+            ? log_error_nonl("Compilation failed")
+            : log_fatal("One of the compilations failed.");
             ret = 0;
             goto __exit;   
         }
@@ -301,6 +306,12 @@ __link:
             ret = 2; 
         printf("\033[K");
         fflush(stdout);
+        // Clear the log and write a " " so you can use it as a errors screen 
+        if (g_flags.silent_comp) {
+            int fd = open(COMPERR_REDIRECT, O_CREAT | O_WRONLY | O_TRUNC);
+            write(fd, " ", 1);  
+            close(fd);
+        }
     } else {
         log_okay("Linking succesful.");
     }

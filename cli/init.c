@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "log.h"
+#include "cli.h"
 
 char* app_entry_c = "/**\n * @brief Genrated template entry for the app.\n**/\n"
 "#include <asclib/core.h>\n#include <stdio.h>\n\n\nasync(mcfw_start) {\n\n"
@@ -12,7 +13,7 @@ char* app_entry_c = "/**\n * @brief Genrated template entry for the app.\n**/\n"
 "   end_return_void();\n"
 "}\n";
 
-char* gitignore = ".host\nmcfw\n._ccomp_cache__\nlogs\n.crefl";
+char* gitignore = ".host\nmcfw\n._ccomp_cache__\nlogs\n.crefl\n"COMPERR_REDIRECT;
 
 char* app_config_json = "{\n"
     "\t\"app\" : \n"

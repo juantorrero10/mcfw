@@ -180,28 +180,26 @@ int has_changed(const char *fpath, const struct stat *sb,
 ) {
     (void)sb; (void)ftwbuf;
     size_t sz = 0;
-    if (tflag == FTW_F) {
-        sz = strlen(fpath);
-        if (is_a_source_file((char*)fpath, sz)) {
-            struct stat st;
-            if (g_flags.force_compile) {
-                goto __recompile;
-            }
-            int e = stat(fpath, &st) == 0;
-            // First check: recompile if timestamp is greater
-            if (!e || mark_modified_timestamp == -1 || st.st_mtime > mark_modified_timestamp) {
-                goto __recompile;
-            } else {
-                // Check for .d file
-                char buff[PATH_MAX];
-                strcpy(buff, CACHE_DIR"/obj/");
-                strcat(buff, fpath);
-                get_dep_name(buff + sizeof(CACHE_DIR) + sizeof("/obj/") - 2, sz);
-                if (deps_have_changed(buff)) {
-                    goto __recompile;
-                }
-            }
-        }
+    if (tflag != FTW_F) return 0;
+    sz = strlen(fpath);
+    if (!is_a_source_file((char*)fpath, sz)) return 0;
+    struct stat st;
+    if (g_flags.force_compile) {
+        goto __recompile;
+    }
+    int e = stat(fpath, &st) == 0;
+    // First check: recompile if timestamp is greater
+    if (!e || mark_modified_timestamp == -1 || st.st_mtime > mark_modified_timestamp) {
+        goto __recompile;
+    }
+    // Check for .d file
+    char buff[PATH_MAX];
+    strcpy(buff, CACHE_DIR"/obj/");
+    strcat(buff, fpath);
+    get_dep_name(buff + sizeof(CACHE_DIR) + sizeof("/obj/") - 2, sz);
+    if (deps_have_changed(buff)) {
+        goto __recompile;
+    
     }
     return 0;
 

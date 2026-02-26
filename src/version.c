@@ -18,6 +18,8 @@
 #include "private/log.h"
 #include "private/router.h"
 
+#define MAX(a, b) ((a) > (b))? (a) : (b)
+
 #define INITIAL_CONTEXES_CAPACITY 4
 #define APP_RELOAD_VER_INITIAL_VAL (uint32_t)-1
 
@@ -96,7 +98,23 @@ static void _free_contexes_table() {
 }
 
 static void _register_context(router* r, void* dl_handle) {
+    router rout = (r != NULL)? *r : (router){0};
 
+    app_context c = {
+        .router = rout,
+        .dl_handle = dl_handle,
+        .reload_version = APP_CURR_VERSION 
+    };
+    free(r);
+    _append_context(&APP_CTX_TABLE, &c);
+}
+
+int load_app() {
+
+    // Increase version
+    APP_CURR_VERSION += 1;
+
+    // Alocate table if is not set
     if (!APP_CTX_TABLE.t.array) {
         APP_CTX_TABLE.t = (r_array_t){
             .array = calloc(sizeof(app_context), INITIAL_CONTEXES_CAPACITY),
@@ -108,27 +126,6 @@ static void _register_context(router* r, void* dl_handle) {
         memset(APP_CTX_TABLE.occupied, 0, INITIAL_CONTEXES_CAPACITY);
         atexit(_free_contexes_table);
     }
-    router rout = (r != NULL)? *r : (router){0};
-
-    app_context c = {
-        .router = rout,
-        .dl_handle = dl_handle,
-        .reload_version = APP_CURR_VERSION 
-    };
-    free(r);
-    _append_context(&g_app_context_table, &c);
-}
-
-int load_app() {
-
-    if (APP_CURR_VERSION != APP_RELOAD_VER_INITIAL_VAL) {
-        // If there are no more clients, free the old context
-        app_context* a = version_get_ctx(APP_CURR_VERSION);
-        if (a && a->ref_count == 0) version_drop_ctx(a);
-    }
-
-    // Increase version
-    APP_CURR_VERSION += 1;
 
     // Hard link binary to a diferent name to get around dlopen() "lazyness"
     char unique_name[64];
@@ -139,29 +136,43 @@ int load_app() {
     if (!app_handle) {
         mlog_error("Couldn't load application: %s", dlerror());
         unlink(unique_name);
-        return 0;
+        goto __exit_dont_apply;
+
     }
     unlink(unique_name);
 
     app_entry_fn entry_point = dlsym(app_handle, g_app_config->app.entry_point);
     if (!entry_point) {
         mlog_error("Couldn't find application entry point. %s", dlerror());
-        return 0;
+        goto __exit_dont_apply;
+
     }
     // Call app entry.
     router* r = entry_point();
     if (!r) {
         mlog_error("null pointer received from entry point");
-        return 0;
+        goto __exit_dont_apply;
     }
 
     if (r->signature != ROUTER_SIGNATURE) {
         mlog_error("pointer received from entry point (%p) was not a router ", r);
-        return 0;
+        goto __exit_dont_apply;
+    }
+
+    // Drop old version
+    if (APP_CURR_VERSION - 1 != APP_RELOAD_VER_INITIAL_VAL) {
+        // If there are no more clients, free the old context
+        app_context* a = version_get_ctx(APP_CURR_VERSION - 1);
+        if (a && a->ref_count == 0) version_drop_ctx(a);
     }
 
     _register_context(r, app_handle);
     return 1;
+
+__exit_dont_apply:
+    if (app_handle) dlclose(app_handle);
+    APP_CURR_VERSION--; // Revert
+    return 0;
 }
 
 app_context* version_get_ctx(uint32_t ver) {

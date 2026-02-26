@@ -60,7 +60,7 @@ int main(int argc, const char** argv) {
         OPT_GROUP("Compilation options."),
         OPT_BOOLEAN('f', "force-compile", &g_flags.force_compile, "Ignore cached obj files, recompile everything", NULL, 0, 0),
         OPT_BOOLEAN('s', "serial-compilation", &g_flags.serial_comp ,"Do not parallelize the compilation.", NULL, 0, 0),
-        OPT_BOOLEAN(0, "silent-recomp", &g_flags.silent_recomp, "[watch] Redirect gcc errors to \""RECOMP_REDIRECT"\" and produce a single error message on recompilations", NULL, 0, 0),
+        OPT_BOOLEAN(0, "silent-comp", &g_flags.silent_comp, "Redirect compilarion gcc errors to \""COMPERR_REDIRECT"\".", NULL, 0, 0),
         OPT_GROUP("Runtime options."),
         OPT_INTEGER(0, "log-level", &g_flags.log_level, "0 = INFO, 1 = WARNINGS, 2 = ERRORS AND PANICS", NULL, 0, 0),
         OPT_BOOLEAN('q', "quiet", &g_flags.quiet, "Run without output.", NULL, 0, 0),

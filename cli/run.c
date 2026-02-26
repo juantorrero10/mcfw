@@ -88,7 +88,13 @@ int cmd_run() {
     argv[3] = (g_flags.watch)? "--enable-hot-reloading" : NULL;
 
     signal(SIGINT, SIG_IGN);
-    int ret = run_subprocess(MCFW_BINARY, argv, g_flags.daemon, g_flags.quiet, g_flags.create_log);
+    int ret = run_subprocess(
+        MCFW_BINARY, 
+        argv, 
+        g_flags.daemon, 
+        (g_flags.quiet)? "/dev/null" : NULL,
+        (g_flags.quiet)? "/dev/null": NULL,
+        g_flags.create_log);
     if (g_flags.daemon) {
         log_running(STYLE_ITALIC""MCFW_BINARY""COLOR_RESET" ["STYLE_BOLD"%d"COLOR_RESET""COLOR_WHITE"]"COLOR_RESET, ret);
         return 0;

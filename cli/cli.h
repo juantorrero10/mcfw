@@ -26,7 +26,7 @@ char** get_changed_files(char* src_folder, size_t* out_n_files);
 int update_checksum(char* binary_file);
 
 #define TERM_BY_SIGNAL (2 << 16)
-int run_subprocess(char* file, char** argv, int daemon, int quiet, int log);
+int run_subprocess(char* file, char** argv, int daemon, char* redir_stdout, char* redir_stderr, int log);
 int wait_parallel(size_t* n_jobs, size_t max_jobs);
 void wait_all(size_t* n_jobs);
 int wait_one(size_t* n_jobs);
@@ -64,7 +64,7 @@ typedef struct {
     uint32_t create_log;
     uint32_t serial_comp;
     uint32_t watch;
-    uint32_t silent_recomp;
+    uint32_t silent_comp;
 } arg_flags;
 extern arg_flags g_flags;
 
@@ -76,7 +76,7 @@ extern arg_flags g_flags;
 #define CHECKSUM_FILE CACHE_DIR"/checksum"
 #define COMPILATION_RED_HERRING "./.host/dont_reload"
 
-#define RECOMP_REDIRECT "recomp-gcc.log"
+#define COMPERR_REDIRECT "recomp-gcc.log"
 
 
 #endif // COMMANDS_H_
