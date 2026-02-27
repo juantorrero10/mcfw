@@ -89,11 +89,16 @@ int update_checksum(char* binary_file) {
     return 0;
 }
 
-static inline int is_a_source_file(char* buff, size_t sz) {
+static inline int is_a_c_file(char* buff, size_t sz) {
     return (!memcmp(buff + sz - 2, ".c", 2));
 }
 
-char_vec lcl_charvec = {0};
+static inline int is_a_source_file(char* buff, size_t sz) {
+    return (!memcmp(buff + sz - 2, ".c", 2) || !memcmp(buff + sz - 2, ".h", 2));
+}
+
+char_vec lcl_changed_files_charvec = {0};
+char_vec lcl_sources_charvec = {0};
 
 void char_push(char_vec* v, char* s, size_t sz) {
     if (v->cur + sz + 1>= v->capacity) {
@@ -182,7 +187,12 @@ int has_changed(const char *fpath, const struct stat *sb,
     size_t sz = 0;
     if (tflag != FTW_F) return 0;
     sz = strlen(fpath);
-    if (!is_a_source_file((char*)fpath, sz)) return 0;
+    if (is_a_source_file((char*)fpath, sz)) {
+        char_push(&lcl_sources_charvec, (char*)fpath, sz + 1);
+        lcl_sources_charvec.str_amnt += 1;
+    }
+    if (!is_a_c_file((char*)fpath, sz)) return 0;
+    
     struct stat st;
     if (g_flags.force_compile) {
         goto __recompile;
@@ -204,22 +214,28 @@ int has_changed(const char *fpath, const struct stat *sb,
     return 0;
 
 __recompile:
-    char_push(&lcl_charvec, (char*)fpath, sz + 1);
-    lcl_charvec.str_amnt += 1;
+    char_push(&lcl_changed_files_charvec, (char*)fpath, sz + 1);
+    lcl_changed_files_charvec.str_amnt += 1;
     return 0; // Tell nftw to continue walking
 }
 
-char** get_changed_files(char* src_folder, size_t* out_n_files) {
-    lcl_charvec = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
+size_t extract_sources_info(char* src_folder, char** out_files_changed[], char* out_all_sources_list[], size_t* out_total_sources) {
+    assert(out_files_changed && out_all_sources_list);
+    lcl_changed_files_charvec = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
+    lcl_sources_charvec = (char_vec){.s = calloc(1, 50), .capacity = 50, .cur = 0};
     make_cache();
     if (nftw(src_folder, has_changed, 20, FTW_PHYS) == -1) {
         perror("nftw");
-        return NULL;
+        return 0;
     }
-    char** ret = (char**)lcl_charvec.s;
-    if (out_n_files) *out_n_files = lcl_charvec.str_amnt;
-    lcl_charvec = (char_vec){0};
-    return ret;
+    *out_files_changed = (char**)lcl_changed_files_charvec.s;
+    *out_all_sources_list = lcl_sources_charvec.s;
+    if (out_total_sources) *out_total_sources = lcl_sources_charvec.str_amnt;
+    size_t n = lcl_changed_files_charvec.str_amnt;
+    lcl_changed_files_charvec = (char_vec){0};
+    lcl_sources_charvec = (char_vec){0};
+
+    return n;
 }
 
 int remove_cache(const char *fpath, const struct stat *sb, 

@@ -21,10 +21,12 @@
 
 #define CC "gcc"
 #define DEPENDENCIES_FOLDER "../dependencies"
+#define CREFL_GEN DEPENDENCIES_FOLDER"/crefl/crefl_gen"
 #define ASCLIB_STATIC "asclib/libasclib.a"
 #define TEMP_OUTPUT   CACHE_DIR"/__tempapp.so"
 #define TARGET_SO     ".host/libapp.so"
 #define COMP_MARK     CACHE_DIR"/comp_mark"
+#define PYTHON        "python3"
 
 //                                              ⌄⌄ replaced by config
 char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-m64", "-MMD", "-MP", "-fPIC", "-o"};
@@ -59,6 +61,27 @@ static void render_progress_bar(prog_bar* b, char* cur_item) {
     log_inprogress(b->op_name, "[%.*s%.*s%.*s] %d%%   %s",
         completed_chars, e, arrow, ">", MAX(30 - 1 - completed_chars, 0), s, (int)(percent * 100), cur_item);
     
+}
+
+static int reflect_types(char* sources_list, size_t total_sources) {
+    // -> PY CREFL_GEN -i source_0... source_N -o out_file NULL
+    char** argv = (char**)calloc(sizeof(char*), 1 + 1 + 1 + total_sources + 1 + 1 + 1);
+    argv[0] = PYTHON;
+    argv[1] = CREFL_GEN;
+    argv[2] = "-i";
+    argv[3 + total_sources] = "-o";
+    argv[3 + total_sources + 1] = APP_CREFL_FILE;
+    argv[3 + total_sources + 2] = NULL;
+    char* p = sources_list;
+    for (size_t i = 0; i < total_sources; i++)
+    {
+        argv[i + 3] = p;
+        while(*p) p++;
+        p++;
+    }
+    int ret = run_subprocess(PYTHON, argv, 0, "/dev/null", (g_flags.silent_comp)? COMPERR_REDIRECT : NULL, 0);
+    free(argv);
+    return ret == 0;
 }
 
 static int compile_obj(char* file, char** flags) {
@@ -190,11 +213,23 @@ int cmd_build(int recompilation) {
     app_config* c = g_app_config;
 
     // Compilation process
-    size_t n_changed;
     char** cflags = NULL;
     char_vec obj_list = {0};
+    char** changed_files;
+    char* sources_list;
+    size_t total_sources = 0;
+    size_t n_changed = extract_sources_info((char*)c->app.source_folder, &changed_files, &sources_list, &total_sources);
 
-    char** files = get_changed_files((char*)c->app.source_folder, &n_changed);
+    if (!reflect_types(sources_list, total_sources)) {
+        free(sources_list);
+        (recompilation && g_flags.silent_comp)
+        ? log_error_nonl("Compilation failed.")
+        : log_fatal("Couldn't generate the metadata of the types.");
+        ret = 0;
+        goto __exit_no_files;
+    }
+    free(sources_list);
+
 
     if (!n_changed) {
         log_okay("Nothing to be done.");
@@ -217,7 +252,7 @@ int cmd_build(int recompilation) {
     
     prog_bar p = {.op_name = "Compiling", .n_tasks = n_changed, .completed = 0};
     make_obj_dir();
-    char* b = (char*)files;
+    char* b = (char*)changed_files;
     cflags = get_comp_argv(c);
     size_t n_jobs = 0;
     // As many jobs as CPU cores
@@ -248,7 +283,9 @@ int cmd_build(int recompilation) {
         last_exit_code = wait_parallel(&n_jobs, max_jobs); 
         if (!last_exit_code) {
             wait_all(&n_jobs);
-            log_fatal("One of the compilations failed.");
+            (recompilation && g_flags.silent_comp)
+            ? log_error_nonl("Compilation failed")
+            : log_fatal("One of the compilations failed.");
             ret = 0;
             goto __exit;
         };
@@ -338,7 +375,7 @@ __exit:
     free(pid_pool);
     free(processing_files);
 __exit_no_files:
-    free((void*)files);
+    free((void*)changed_files);
     refl_threadlocal_destroy();
     return ret;
 }

@@ -6,6 +6,8 @@
 #include <dlfcn.h>
 #include <sys/inotify.h>
 #include <assert.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #include <asclib/core.h>
 #include <asclib/sync.h>
@@ -25,6 +27,8 @@
 
 app_context_table APP_CTX_TABLE = {0};
 uint32_t APP_CURR_VERSION = APP_RELOAD_VER_INITIAL_VAL;
+
+RHandle latest_handle = NULL;
 
 async_(version_watch_async) {
     detach;
@@ -47,11 +51,12 @@ async_(version_watch_async) {
         if(!strcmp(file_changed, APP_SO)) {       
             load_app();
         } else if (!strcmp(file_changed, COMPILATION_RED_HERRING)){
-            load_app(); // TEMP!! think for a better system because this triggers false negatives.
+            //load_app(); // TEMP!! think for a better system because this triggers false negatives.
             remove(COMPILATION_RED_HERRING);
         }
         free(file_changed);
-
+        // 50 ms sleep to help things get in their place.
+        await(asc_sleep(50));
     }
     end_return_void();
 }
@@ -84,8 +89,9 @@ static void _append_context(app_context_table* t, app_context* ctx) {
 
 static inline void _free_context(app_context* c) {
     router_destroy(&c->router);
-    
     dlclose(c->dl_handle);
+    mlog_info("Close prev: %d", c->close_crefl_handle);
+    if (c->close_crefl_handle) refl_close_scope(c->crefl_handle);
 }
 
 
@@ -100,22 +106,60 @@ static void _free_contexes_table() {
     free(APP_CTX_TABLE.occupied);
 }
 
-static void _register_context(router* r, void* dl_handle) {
+static void _register_context(router* r, void* dl_handle, RHandle h, uint8_t* checksum) {
     router rout = (r != NULL)? *r : (router){0};
 
     app_context c = {
         .router = rout,
         .dl_handle = dl_handle,
+        .crefl_handle = h,
+        .ref_count = 0,
         .reload_version = APP_CURR_VERSION 
     };
     free(r);
+    memcpy(&c.crefl_checksum, checksum, 16);
     _append_context(&APP_CTX_TABLE, &c);
 }
 
+#if defined(__GNUC__) || defined(__clang__)
+#  define CREFL_PACKED __attribute__((packed))
+#elif defined(_MSC_VER)
+#  define CREFL_PACKED __pragma(pack(push, 1))
+#else
+#  error "Unknown compiler"
+#endif
+
+typedef struct CREFL_PACKED
+{
+    uint64_t    magic;             
+    uint8_t     endianness;        
+    uint16_t    version;           
+    uint16_t    flags;             
+    uint8_t     checksum[16];
+    uint32_t    n_sections;        
+} CREFL_Header;
+
+static int _crefl_needs_reloading(app_context* curr_ver, uint8_t* out_checksum) {
+    int fd = open(CREFL_APP_FILE, O_RDONLY);
+    if (fd < 0) mlog_error("Couldn't find reflected type metadata file ("CREFL_APP_FILE").");
+    CREFL_Header h;
+    ssize_t n = read(fd, &h, sizeof(CREFL_Header));
+    if (n < 0) mlog_error("Couldn't read from .crefl file: %s", strerror(errno));
+    close(fd);
+    memcpy(out_checksum, h.checksum, 16);
+    if (curr_ver != NULL) {
+        int needs = memcmp(curr_ver->crefl_checksum, h.checksum, 16) != 0;
+        return needs;
+    }
+    return 1;
+}
+
+
 int load_app() {
 
-    // Increase version
     uint32_t next_version = APP_CURR_VERSION + 1;
+
+    app_context* curr_ver = version_get_ctx(APP_CURR_VERSION); 
 
     // Alocate table if is not set yet
     if (!APP_CTX_TABLE.t.array) {
@@ -162,19 +206,32 @@ int load_app() {
         mlog_error("pointer received from entry point (%p) was not a router ", r);
         goto __exit_dont_apply;
     }
-
     
     // Drop old version
     if (APP_CURR_VERSION != APP_RELOAD_VER_INITIAL_VAL) {
         // If there are no more clients, free the old context
-        app_context* a = version_get_ctx(APP_CURR_VERSION);
-        assert(a);
-        if (a->ref_count == 0) version_drop_ctx(a);
+        assert(curr_ver);
+        if (curr_ver->ref_count == 0) version_drop_ctx(curr_ver);
     }
+    
+    // If types data hasn't changed we use the old handle.
+    uint8_t checksum[16];
+    RHandle h = NULL;
+    int n2 = _crefl_needs_reloading(curr_ver, checksum);
+    mlog_info("needs reloading: %d", n2); 
+    if (n2) {
+        if (curr_ver) refl_close_scope(curr_ver->crefl_handle);
+        h = refl_load_metadata_to(CREFL_APP_FILE);
+        assert(h);
+    } else {
+        h = curr_ver->crefl_handle;
+    }
+
+    latest_handle = h;
 
     APP_CURR_VERSION = next_version;
 
-    _register_context(r, app_handle);
+    _register_context(r, app_handle, h, checksum);
     return 1;
 
 __exit_dont_apply:

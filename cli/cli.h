@@ -20,10 +20,10 @@ typedef struct {
 
 extern long mark_modified_timestamp;
 
+int update_checksum(char* binary_file);
 void char_push(char_vec* v, char* s, size_t sz);
 void cache_file_checksums(char* src_folder, int rec_lvl);
-char** get_changed_files(char* src_folder, size_t* out_n_files);
-int update_checksum(char* binary_file);
+size_t extract_sources_info(char* src_folder, char** out_files_changed[], char* out_all_sources_list[], size_t* out_total_sources);
 
 #define TERM_BY_SIGNAL (2 << 16)
 int run_subprocess(char* file, char** argv, int daemon, char* redir_stdout, char* redir_stderr, int log);
@@ -75,6 +75,8 @@ extern arg_flags g_flags;
 #define CACHE_DIR "._ccomp_cache__"
 #define CHECKSUM_FILE CACHE_DIR"/checksum"
 #define COMPILATION_RED_HERRING "./.host/dont_reload"
+#define CRELF_FOLDER ".crefl"
+#define APP_CREFL_FILE CRELF_FOLDER"/app_types.crefl"
 
 #define COMPERR_REDIRECT "comp-out.log"
 

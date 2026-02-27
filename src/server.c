@@ -7,6 +7,7 @@
 #include <asclib/cleanup.h>
 
 #include <crefl/core.h>
+#include <crefl/scope.h>
 #include <crefl/serial/formats.h>
 
 #include "private/log.h"
@@ -20,6 +21,9 @@
 oneshot_tx_ref_t g_shutdown_tx;
 
 oneshot_tx_ref_t server_get_graceful_shutdown_tx() { return g_shutdown_tx; }
+RHandle server_get_crefl_handle() {
+    return version_get_ctx(APP_CURR_VERSION)->crefl_handle;
+}
 
 
 static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg);
@@ -29,14 +33,23 @@ struct method_args {
     http_request req;
 };
 
+#define STRIP_HTTP_PREFIX(_str_expr) (_str_expr + 5)
+
 void send_response_back(int fd, int code, u8_vec* buffer, u8_vec* body) {
 
     if (body->data) {
-        snprintf((char*)buffer->data, buffer->capacity, "HTTP/1.0 %d %s\r\n%.*s", code, 
-            refl_enum_get_label(refl_fetch_enum("http_status_code"), code), U8_VEC_FMT(*body));
+        snprintf((char*)buffer->data, buffer->capacity, "HTTP/1.0 %d %s\r\n%.*s\r\n", 
+            code, 
+            STRIP_HTTP_PREFIX(
+                refl_enum_get_label(
+                    refl_fetch_enum("http_status_code"), 
+                    code
+                )
+            ), 
+            U8_VEC_FMT(*body));
     } else {
         snprintf((char*)buffer->data, buffer->capacity, "HTTP/1.0 %d %s\r\n", code, 
-            refl_enum_get_label(refl_fetch_enum("http_status_code"), code));
+            STRIP_HTTP_PREFIX(refl_enum_get_label(refl_fetch_enum("http_status_code"), code)));
     }
 
     buffer->count = strlen((const char*)buffer->data); 

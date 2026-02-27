@@ -36,6 +36,8 @@ REFLECT(struct) {
 #define APP_LIBS_PREFIX          HOST_FOLDER"/libapp"
 #define APP_SO                   APP_LIBS_PREFIX".so"
 #define COMPILATION_RED_HERRING HOST_FOLDER"/dont_reload"
+#define CREFL_FOLDER    ".crefl"
+#define CREFL_APP_FILE CREFL_FOLDER"/app_types.crefl"
 
 #define ARG_FLAGS g_args
 #define APP_CONFIG_STRUCT g_app_config
