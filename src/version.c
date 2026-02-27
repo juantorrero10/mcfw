@@ -47,6 +47,7 @@ async_(version_watch_async) {
         if(!strcmp(file_changed, APP_SO)) {       
             load_app();
         } else if (!strcmp(file_changed, COMPILATION_RED_HERRING)){
+            load_app(); // TEMP!! think for a better system because this triggers false negatives.
             remove(COMPILATION_RED_HERRING);
         }
         free(file_changed);

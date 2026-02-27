@@ -21,13 +21,13 @@
 
 
 
-static int _get_req_from_str(u8_vec* method) {
+static int _get_req_from_str(u8_slice* method) {
     REnum* e = refl_fetch_enum("request_kind");
     for (size_t i = 0; i < e->n_elements; i++)
     {
         size_t method_len = strlen(e->names[i]);
-        if (method_len != method->count) continue;
-        if (!memcmp(method->data, e->names[i], method->count)) return e->indexes[i];
+        if (method_len != method->len) continue;
+        if (!memcmp(method->data, e->names[i], method->len)) return e->indexes[i];
     }
     
     return -1;
@@ -36,15 +36,15 @@ static int _get_req_from_str(u8_vec* method) {
 /**
  * @todo hash table
  */
-routing_result router_get_handler(router* r, u8_vec* method, u8_vec* route) {
+routing_result router_get_handler(router* r, u8_slice method, u8_slice route) {
 
     for (size_t i = 0; i < r->entries.size; i++)
     {
         router_entry* re = (router_entry*)r->entries.array + i;
-        int kind = _get_req_from_str(method);
+        int kind = _get_req_from_str(&method);
         if (kind == -1) return ROUT_RET_ERR(HTTP_BAD_REQUEST);
-        if (re->route_str.count != route->count) continue;
-        if (!memcmp(re->route_str.data, route->data, re->route_str.count)) {
+        if (re->route_str.len != route.len) continue;
+        if (!memcmp(re->route_str.data, route.data, re->route_str.len)) {
             if (re->r_kind != (request_kind)kind) return ROUT_RET_ERR(HTTP_METHOD_NOT_ALLOWED);
             return ROUT_RET_OK(re->method_fptr);
         }
@@ -52,16 +52,33 @@ routing_result router_get_handler(router* r, u8_vec* method, u8_vec* route) {
     return ROUT_RET_ERR(HTTP_NOT_FOUND);
 }
 
+static void u8_vec_push(u8_vec* v, u8_slice* s) {
+    if (v->count + s->len >= v->capacity) {
+        v->capacity *= 2;
+        v->data = realloc(v->data, v->capacity);
+    }
+    memcpy(v->data + v->count, s->data, s->len);
+    v->count += s->len;
+}
+
 router* router_create(router_entry* entries, size_t amount) {
     router_entry* _entries = calloc(sizeof(router_entry), amount);
     memcpy(_entries, entries, sizeof(router_entry) * amount);
+    u8_vec routes_pool = U8_VEC_NEW(50);
     for (size_t i = 0; i < amount; i++)
     {
-        _entries[i].route_str = entries[i].route_str;
-        _entries[i].route_str.data = (uint8_t*)strdup((char*)entries[i].route_str.data);
+        u8_vec_push(&routes_pool, &entries[i].route_str);
     }
-    
+    size_t total_size = 0;
+    size_t new_size = 0;
+    for (size_t i = 0; i < amount; i++)
+    {
+        new_size += entries[i].route_str.len;
+        _entries[i].route_str = U8_VIEW(routes_pool.data, total_size, new_size);
+        total_size = new_size;
+    }
     router* ret = malloc(sizeof(router));
+    ret->route_str_pool = routes_pool;
     ret->entries = (r_array_t){.array = _entries, .chunk_size = sizeof(router_entry), .size = amount, .capacity = amount};
     ret->signature = ROUTER_SIGNATURE;
     return ret;
@@ -69,10 +86,6 @@ router* router_create(router_entry* entries, size_t amount) {
 
 void router_destroy(router* r) {
     if (r->signature != ROUTER_SIGNATURE) return;
-    for (size_t i = 0; i < r->entries.size; i++)
-    {
-        router_entry* re = (router_entry*)r->entries.array + i;
-        free(re->route_str.data);   
-    }
+    U8_VEC_FREE(r->route_str_pool);
     free(r->entries.array);
 }

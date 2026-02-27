@@ -22,6 +22,7 @@ typedef struct {
 #define ROUTER_SIGNATURE 0x524F5452 // "ROTR"
 
 typedef struct __MCFW__ROUTER__ {
+    u8_vec route_str_pool;
     uint32_t signature;
     DYN_ARRAY(router_entry) entries;
 } router;

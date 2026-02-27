@@ -10,5 +10,6 @@
 #define HTTP_RES_OK_PLAIN(_u8_vec) HTTP_RES_PLAIN(HTTP_OK, (_u8_vec))
 
 http_response* http_response_create(http_status_code c, http_content_type res_type, char* __type, u8_vec buff);
+http_request http_req_create(http_content_type t, u8_slice body);
 
 #endif // PUBLIC_RESPONSE_H_

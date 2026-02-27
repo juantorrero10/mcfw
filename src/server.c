@@ -12,6 +12,7 @@
 #include "private/log.h"
 #include "public/types.h"
 #include "public/router.h"
+#include "public/http_interface.h"
 #include "private/router.h"
 #include "private/version.h"
 
@@ -23,13 +24,18 @@ oneshot_tx_ref_t server_get_graceful_shutdown_tx() { return g_shutdown_tx; }
 
 static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg);
 
+struct method_args {
+    size_t padding;
+    http_request req;
+};
+
 void send_response_back(int fd, int code, u8_vec* buffer, u8_vec* body) {
 
     if (body->data) {
-        snprintf((char*)buffer->data, buffer->capacity, "%d %s %.*s", code, 
-            refl_enum_get_label(refl_fetch_enum("http_status_code"), code), U8_VEC_FORMAT(*body));
+        snprintf((char*)buffer->data, buffer->capacity, "HTTP/1.0 %d %s\r\n%.*s", code, 
+            refl_enum_get_label(refl_fetch_enum("http_status_code"), code), U8_VEC_FMT(*body));
     } else {
-        snprintf((char*)buffer->data, buffer->capacity, "%d %s", code, 
+        snprintf((char*)buffer->data, buffer->capacity, "HTTP/1.0 %d %s\r\n", code, 
             refl_enum_get_label(refl_fetch_enum("http_status_code"), code));
     }
 
@@ -44,9 +50,9 @@ void send_response_back(int fd, int code, u8_vec* buffer, u8_vec* body) {
     }
 }
 
-static inline void trim_buffer(u8_vec* str) {
+static inline void trim_slice(u8_slice* str) {
     char* _ptr = (char*)str->data;
-    while(_ptr < (char*)str->data + str->count) {
+    while(_ptr < (char*)str->data + str->len) {
         switch (*_ptr)
         {
         case ' ':
@@ -63,19 +69,21 @@ static inline void trim_buffer(u8_vec* str) {
         }
         break;
     }
-    str->count = (size_t)(_ptr - (char*)str->data);
+    str->len = (size_t)(_ptr - (char*)str->data);
 }
 
 /**
- * @brief mock route protocol <METHOD> <ROUTE> -> GET /about
+ * @brief mock route protocol <METHOD> <ROUTE> [<body>] -> GET /about, POST /getuser {"id":2}
  * TEMP client_handler
  */
 async(client_handler, int fd) {
     detach;
     int fd = clean_on_drop(arg(fd));
 
+    // Buffer to get the user response.
+    // This buffer will be reuse when sending the response back if posible.
     char __b[1024];
-    u8_vec buff = U8_VEC_NEW(__b, 1024);
+    u8_vec buff = {.data = (uint8_t*)__b, .capacity = 1024, .count = 0};
     
     // Hot reloading: get the current version and get the most recent router.
     size_t version = APP_CURR_VERSION;
@@ -94,18 +102,14 @@ async(client_handler, int fd) {
         task_return_void();
     });
 
-    buff.count = sz;
-
-    if (sz >= 0) {
-        //mlog_info("client_handler", "Received from <%d>: %.*s", fd, U8_VEC_FORMAT(buff));
-    } else {
+    if (sz < 0) {
         mlog_error("Couldn't receive from client: %s", strerror(errno));
         goto __dec_rc_and_exit;
-    }
-
-    if (sz == 0) {
+    } else if (sz == 0) {
         send_response_back(fd, HTTP_BAD_REQUEST, &buff, &U8_VEC_NULL);
     }
+
+    buff.count = sz;
 
     uint8_t* space = (uint8_t*)strchr((char*)buff.data, ' ');
     if (!space) {
@@ -113,22 +117,31 @@ async(client_handler, int fd) {
         goto __dec_rc_and_exit;
     }
     size_t method_sz = (size_t)(space - buff.data);
-    u8_vec method = U8_VEC_SUBSTR(buff.data, 0, method_sz);
-    u8_vec route = U8_VEC_SUBSTR(buff.data, method_sz + 1, buff.count);
+    size_t route_sz = 0;
+    u8_slice method = U8_VIEW(buff.data, 0, method_sz);
+    space = (uint8_t*)strchr((char*)buff.data + method_sz + 1, ' ');
+    int has_body = space != NULL;
+    route_sz = (has_body)? (size_t)(space - buff.data) : buff.count;
+    u8_slice route = U8_VIEW(buff.data, method_sz + 1, route_sz);
+    u8_slice body = (u8_slice){0};
+    if (has_body) {
+        body = U8_VIEW(buff.data, route_sz + 1, buff.count);
+    }
 
-    trim_buffer(&route);
+    trim_slice(&route);
 
 
-    routing_result r = router_get_handler(rout, &method, &route);
+    routing_result r = router_get_handler(rout, method, route);
 
     if (r.st == MCFW_OK) {
-        http_response* res =  await_ret(http_response*, spawn_task_on_fptr(r.data.method_fptr, NULL));
+        struct method_args a = {0, http_req_create(CONTENT_TEXT, body)};
+        http_response* res =  await_ret(http_response*, spawn_task_on_fptr(r.data.method_fptr, &a));
         if (!res) { 
             send_response_back(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, &U8_VEC_NULL);
-            mlog_error("null ptr received from method: %.*s", U8_VEC_FORMAT(method)); 
+            mlog_error("null ptr received from method: %.*s", U8_SLICE_FMT(method)); 
             goto __dec_rc_and_exit;
         } else if (res->signature != HTTP_RES_SIGNATURE) {
-            mlog_error("http response received from method: %.*s is garbage", U8_VEC_FORMAT(method));
+            mlog_error("http response received from method: %.*s is garbage", U8_SLICE_FMT(method));
         }
         send_response_back(fd, res->code, &buff, &res->buff);
         free(res->buff.data);
@@ -178,8 +191,10 @@ async(accept_loop, tcp_listener_t* t) {
 }
 
 static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg) {
+
+
     task__arg__constructor te =  {
-        .arg_malloced = 1,
+        .arg_malloced = 0,
         .arg_size = sizeof(void*),
         .fptr = *fptr,
         .n_pages = TASK_DEFAULT_PAGES,
