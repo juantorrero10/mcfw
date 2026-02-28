@@ -21,10 +21,6 @@
 oneshot_tx_ref_t g_shutdown_tx;
 
 oneshot_tx_ref_t server_get_graceful_shutdown_tx() { return g_shutdown_tx; }
-RHandle server_get_crefl_handle() {
-    return version_get_ctx(APP_CURR_VERSION)->crefl_handle;
-}
-
 
 static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg);
 
@@ -148,6 +144,7 @@ async(client_handler, int fd) {
 
     if (r.st == MCFW_OK) {
         struct method_args a = {0, http_req_create(CONTENT_TEXT, body)};
+        a.req.crefl_handle = c->crefl_data->c_handle;
         http_response* res =  await_ret(http_response*, spawn_task_on_fptr(r.data.method_fptr, &a));
         if (!res) { 
             send_response_back(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, &U8_VEC_NULL);
@@ -167,7 +164,7 @@ async(client_handler, int fd) {
 __dec_rc_and_exit:
     c->ref_count--;
     if (c->ref_count == 0 && APP_CURR_VERSION != version)
-        version_drop_ctx(c);
+        version_drop_ctx(c, 1);
     end_return_void();
 }
 

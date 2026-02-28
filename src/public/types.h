@@ -74,6 +74,7 @@ typedef struct {
     //headers
     http_content_type type;
     u8_slice buff;
+    void* crefl_handle;
 } http_request;
 
 REFLECT(enum) {

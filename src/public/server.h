@@ -5,6 +5,5 @@
 
 
 oneshot_tx_ref_t server_get_graceful_shutdown_tx();
-void* server_get_crefl_handle();
 
 #endif // PUBLIC_SERVER_H_

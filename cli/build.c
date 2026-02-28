@@ -220,16 +220,6 @@ int cmd_build(int recompilation) {
     size_t total_sources = 0;
     size_t n_changed = extract_sources_info((char*)c->app.source_folder, &changed_files, &sources_list, &total_sources);
 
-    if (!reflect_types(sources_list, total_sources)) {
-        free(sources_list);
-        (recompilation && g_flags.silent_comp)
-        ? log_error_nonl("Compilation failed.")
-        : log_fatal("Couldn't generate the metadata of the types.");
-        ret = 0;
-        goto __exit_no_files;
-    }
-    free(sources_list);
-
 
     if (!n_changed) {
         log_okay("Nothing to be done.");
@@ -328,6 +318,16 @@ int cmd_build(int recompilation) {
     // if compilation succeds, save an file to mark the timestamp of last comp
     close(creat(COMP_MARK, 0644));
     if (!recompilation) log_okay("Compilation succeded.");
+
+    if (!reflect_types(sources_list, total_sources)) {
+        free(sources_list);
+        (recompilation && g_flags.silent_comp)
+        ? log_error_nonl("Compilation failed.")
+        : log_fatal("Couldn't generate the metadata of the types.");
+        ret = 0;
+        goto __exit_no_files;
+    }
+    free(sources_list);
 
     // Link
 __link:
