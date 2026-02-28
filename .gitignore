@@ -4,4 +4,5 @@ dependencies
 update.sh
 .vscode
 todo.txt
+utils
 vg.supp

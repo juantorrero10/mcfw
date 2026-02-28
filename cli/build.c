@@ -222,7 +222,7 @@ int cmd_build(int recompilation) {
 
 
     if (!n_changed) {
-        log_okay("Nothing to be done.");
+        if (!(recompilation && g_flags.silent_comp)) log_okay("Nothing to be done.");
         // Check if output exists because the linkage might've failed.
         // Also check if last compilation happened later than last linkage
         e = stat(TARGET_SO, &st) == 0;

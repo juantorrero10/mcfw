@@ -5,7 +5,7 @@ mkdir dependencies/asclib
 mkdir dependencies/crefl
 cd submodules/asclib
 make clean
-make -j4
+make -j4 OPT=2
 rm ../../dependencies/asclib/* -rf
 cp -r headers/asclib ../../dependencies
 cp build/lib/libasclib.a ../../dependencies/asclib
