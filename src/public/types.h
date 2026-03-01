@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <crefl/types.h>
+#include <stdbool.h>
 
 typedef struct {
     uint8_t* data;
@@ -56,9 +57,11 @@ typedef struct {
 REFLECT(enum) {
     HTTP_OK = 200,
     HTTP_BAD_REQUEST = 400,
-    HTTP_GONE = 403,
+    HTTP_FORBIDDEN = 403,
     HTTP_NOT_FOUND = 404,
     HTTP_METHOD_NOT_ALLOWED = 405,
+    HTTP_GONE = 410,
+    HTTP_UNPROCESABLE_CONTENT = 422,
     HTTP_INTERNAL_SERVER_ERROR = 500,
     HTTP_SERVICE_UNAVAILABLE = 503
 } http_status_code;
@@ -71,27 +74,43 @@ REFLECT(enum) {
 
 typedef struct __MCFW_HTTP_RESPONSE__ http_response;
 
-typedef struct {
-    //headers
-    http_content_type type;
-    u8_slice buff;
-    void* crefl_handle;
-} http_request;
+#define PAYLOAD_METHODS_IDX 3
 
 REFLECT(enum) {
     GET,
-    POST,
+    DELETE,
+    HEAD,
+    POST = 3,
     PUT,
     PATCH,
-    DELETE,
     OPTIONS,
-    HEAD
 } request_kind;
+
+typedef struct {
+    //headers
+    int http_version;
+    request_kind r_kind;
+    http_content_type type;
+    size_t content_length;
+    
+    u8_slice path;
+    // string view of the body inside the full request -> If no body pointer is NULL!!
+    u8_slice body;
+    /**
+     * @brief heap allocated decoded data extracted from the request: ex. deserialized struct from a JSON POST
+     * It will be NULL if there's nothing to decode. 
+     * @attention This buffer is freed automatically, don't call free() on it
+    */ 
+    u8_vec decoded;
+} http_request;
 
 typedef struct
 {
     request_kind r_kind;
+    http_content_type expect;
+    // Can be NULL
     void* method_fptr;
+    u8_slice deserialize_typename;
     u8_slice route_str;
 } router_entry;
 

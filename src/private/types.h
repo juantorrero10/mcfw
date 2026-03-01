@@ -14,7 +14,7 @@ typedef enum {
 typedef struct {
     mcfw_status st;
     union {
-        async_fn method_fptr;
+        void* ok_data;
         http_status_code err;
     } data;
 } routing_result;
@@ -22,7 +22,8 @@ typedef struct {
 #define ROUTER_SIGNATURE 0x524F5452 // "ROTR"
 
 typedef struct __MCFW__ROUTER__ {
-    u8_vec route_str_pool;
+    u8_vec routes_str_pool;
+    u8_vec types_str_pool;
     uint32_t signature;
     DYN_ARRAY(router_entry) entries;
 } router;
@@ -33,6 +34,7 @@ typedef struct __MCFW_HTTP_RESPONSE__ {
     uint32_t signature;
     http_status_code code;
     http_content_type type;
+    char* typename;
     u8_vec buff;
 } http_response;
 

@@ -13,40 +13,26 @@
 #include "private/log.h"
 #include "private/router.h"
 #include "private/version.h"
+#include "private/glob.h"
 
 #define ROUT_RET_ERR(_err) (routing_result){.data.err = (_err), .st = MCFW_ERR};
-#define ROUT_RET_OK(_fptr) (routing_result){.data.method_fptr = (_fptr), .st = MCFW_OK};
+#define ROUT_RET_OK(_fptr) (routing_result){.data.ok_data = (_fptr), .st = MCFW_OK};
 
-
-
-
-
-static int _get_req_from_str(u8_slice* method) {
-    REnum* e = refl_fetch_enum("request_kind");
-    for (size_t i = 0; i < e->n_elements; i++)
-    {
-        size_t method_len = strlen(e->names[i]);
-        if (method_len != method->len) continue;
-        if (!memcmp(method->data, e->names[i], method->len)) return e->indexes[i];
-    }
-    
-    return -1;
-}
 
 /**
  * @todo hash table
  */
-routing_result router_get_handler(router* r, u8_slice method, u8_slice route) {
+routing_result router_get_entry(router* r, http_request* req) {
+
 
     for (size_t i = 0; i < r->entries.size; i++)
     {
         router_entry* re = (router_entry*)r->entries.array + i;
-        int kind = _get_req_from_str(&method);
-        if (kind == -1) return ROUT_RET_ERR(HTTP_BAD_REQUEST);
-        if (re->route_str.len != route.len) continue;
-        if (!memcmp(re->route_str.data, route.data, re->route_str.len)) {
-            if (re->r_kind != (request_kind)kind) return ROUT_RET_ERR(HTTP_METHOD_NOT_ALLOWED);
-            return ROUT_RET_OK(re->method_fptr);
+        if (re->route_str.len != req->path.len) continue;
+        if (!re->route_str.data) continue;
+        if (!memcmp(re->route_str.data, req->path.data, re->route_str.len)) {
+            if (re->r_kind != (request_kind)req->r_kind) return ROUT_RET_ERR(HTTP_METHOD_NOT_ALLOWED);
+            return ROUT_RET_OK(re);
         }
     }
     return ROUT_RET_ERR(HTTP_NOT_FOUND);
@@ -64,21 +50,55 @@ static void u8_vec_push(u8_vec* v, u8_slice* s) {
 router* router_create(router_entry* entries, size_t amount) {
     router_entry* _entries = calloc(sizeof(router_entry), amount);
     memcpy(_entries, entries, sizeof(router_entry) * amount);
-    u8_vec routes_pool = U8_VEC_NEW(50);
+    u8_vec routes_pool = U8_VEC_NEW(64);
+    u8_vec typename_pool = U8_VEC_NEW(64);
     for (size_t i = 0; i < amount; i++)
     {
+        // Push route string
+        if (!entries[i].route_str.data) { 
+            mlog_error("Received a null string for route idx: %zu", i);
+            U8_VEC_FREE(routes_pool);
+            U8_VEC_FREE(typename_pool);
+            return NULL;
+        }
         u8_vec_push(&routes_pool, &entries[i].route_str);
+
+        // Push typename string if necesary
+        if (!req_deserializing_lut[entries[i].expect]) continue;
+        if (!entries[i].deserialize_typename.data) { 
+            mlog_error("Received a null string for type name on route idx: %zu", i);
+            U8_VEC_FREE(routes_pool);
+            U8_VEC_FREE(typename_pool);
+            return NULL; 
+        }
+        u8_vec_push(&typename_pool, &entries[i].deserialize_typename);
+
     }
-    size_t total_size = 0;
-    size_t new_size = 0;
+    size_t word_start_route = 0;
+    size_t word_end_route = 0;
+    size_t word_start_typename = 0;
+    size_t word_end_typename = 0;
     for (size_t i = 0; i < amount; i++)
     {
-        new_size += entries[i].route_str.len;
-        _entries[i].route_str = U8_VIEW(routes_pool.data, total_size, new_size);
-        total_size = new_size;
+
+        // Get str offsets for the route
+        word_end_route += entries[i].route_str.len;
+        _entries[i].route_str = U8_VIEW(routes_pool.data, word_start_route, word_end_route);
+        word_start_route = word_end_route;
+    
+
+
+        // Get for the typename if necesary
+        if (!req_deserializing_lut[entries[i].expect]) continue;
+        word_end_typename += entries[i].deserialize_typename.len;
+        _entries[i].deserialize_typename = U8_VIEW(typename_pool.data, word_start_typename, word_end_typename);
+        word_start_typename = word_end_typename; 
     }
+
+
     router* ret = malloc(sizeof(router));
-    ret->route_str_pool = routes_pool;
+    ret->routes_str_pool = routes_pool;
+    ret->types_str_pool = typename_pool;
     ret->entries = (r_array_t){.array = _entries, .chunk_size = sizeof(router_entry), .size = amount, .capacity = amount};
     ret->signature = ROUTER_SIGNATURE;
     return ret;
@@ -86,6 +106,7 @@ router* router_create(router_entry* entries, size_t amount) {
 
 void router_destroy(router* r) {
     if (r->signature != ROUTER_SIGNATURE) return;
-    U8_VEC_FREE(r->route_str_pool);
+    U8_VEC_FREE(r->routes_str_pool);
+    U8_VEC_FREE(r->types_str_pool);
     free(r->entries.array);
 }

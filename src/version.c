@@ -18,6 +18,7 @@
 #include "private/configs.h"
 #include "private/version.h"
 #include "private/log.h"
+#include "private/glob.h"
 #include "private/router.h"
 
 #define MAX(a, b) ((a) > (b))? (a) : (b)
@@ -98,7 +99,6 @@ static void _drop_scope(crefl_scope* s) {
     size_t idx = s->at_index;
 
     if (CREFL_SCOPES_TABLE.occupied[idx] == 0) return;
-    mlog_info("drop scope: %zu", s->at_index);
 
     refl_close_scope(s->c_handle);
     free(s);

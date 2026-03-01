@@ -113,7 +113,7 @@ int main(int argc, const char** argv) {
     fread(j, cur, 1, f);
     fclose(f);
 
-    DeserializeResult dr = deserialize_json(config_type, j);
+    DeserializeResult dr = deserialize_json(config_type, j, cur);
     free(j);
     if (dr.st != DR_OK) {
         log_fatal("Couldn't parse config file: %s", dr.data.err_str);

@@ -5,6 +5,6 @@
 #include "types.h"
  
 void router_destroy(router* r);
-routing_result router_get_handler(router* r, u8_slice method, u8_slice route);
+routing_result router_get_entry(router* r, http_request* req);
 
 #endif // ROUTER_PRIV_H_

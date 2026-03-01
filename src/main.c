@@ -12,10 +12,16 @@
 #include "vendor/argparse.h"
 #include "private/configs.h"
 #include "private/log.h"
+#include "private/glob.h"
 
 
 mcfw_arg_config ARG_FLAGS = {0};
 app_config* APP_CONFIG_STRUCT = NULL;
+
+char STR_SCRATCH[4096] = {0};
+const REnum* CACHED_ENUM_REQ_KIND = NULL;
+const REnum* CACHED_ENUM_STR_STATUS = NULL;
+
 
 
 static app_config* load_config();
@@ -29,6 +35,7 @@ int main(int argc, const char** argv) {
     parse_args(argc, argv);
     g_app_config = load_config();
     mlog_info("loaded_config");
+    
     atexit(__free_config);
 
     server_start();
@@ -94,7 +101,7 @@ static app_config* load_config() {
         mlog_panic("Couldn't read app config %s", strerror(errno));
     }
 
-    DeserializeResult dr = deserialize_json(config_type, config_contents);
+    DeserializeResult dr = deserialize_json(config_type, config_contents, cur);
     if (dr.st != DR_OK) {
         mlog_panic("Couldn't parse app configuration '%s'", dr.data.err_str);
         fclose(f);

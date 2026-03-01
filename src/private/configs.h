@@ -3,6 +3,8 @@
 
 #include <crefl/types.h>
 
+#define SERVER_HEADER_VAL "mcfw-dev (unstable)"
+
 typedef struct {
     uint32_t hr_enabled;
     uint32_t log_level;
@@ -38,11 +40,5 @@ REFLECT(struct) {
 #define COMPILATION_RED_HERRING HOST_FOLDER"/dont_reload"
 #define CREFL_FOLDER    ".crefl"
 #define CREFL_APP_FILE CREFL_FOLDER"/app_types.crefl"
-
-#define ARG_FLAGS g_args
-#define APP_CONFIG_STRUCT g_app_config
-
-extern mcfw_arg_config ARG_FLAGS;
-extern app_config* APP_CONFIG_STRUCT;
 
 #endif // CONFIGS_H_
