@@ -115,7 +115,6 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
     if (req->minor_version >= 1 && !req->core_headers.host.data) {
         return HTTP_BAD_REQUEST;
     }
-    mlog_info("a");
 
     // Content-Length
     u8_slice content_length = http_get_header_val(U8_CSTR_LIT_SLICE("Content-Length"), &req->misc_headers);
@@ -130,7 +129,6 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
             return HTTP_BAD_REQUEST;
         }
     }
-    mlog_info("a");
 
 
     // Default value.

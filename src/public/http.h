@@ -27,6 +27,7 @@ REFLECT(enum) {
     HTTP_CONTENT_TOO_LARGE = 413,
     HTTP_UNSUPORTED_MEDIA_TYPE = 415,
     HTTP_UNPROCESABLE_CONTENT = 422,
+    HTTP_LOCKED = 423,
     HTTP_HEADERS_TOO_LARGE =  431,
     HTTP_INTERNAL_SERVER_ERROR = 500,
     HTTP_SERVICE_UNAVAILABLE = 503
@@ -112,5 +113,10 @@ typedef struct {
 } http_request;
 
 http_response* http_response_create(http_status_code c, http_content_type res_type, char* __type, u8_vec buff);
+/**
+ * @brief hash table lookup for a name in the headers table.
+ * @return table entry with the name and the value or NULL string slice if not found.
+ */
+u8_slice http_get_header_val(u8_slice name, http_header_table* headers);
 
 #endif // PUBLIC_HTTP_H

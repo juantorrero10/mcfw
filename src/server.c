@@ -249,7 +249,6 @@ __recv_begin:
 
     sz = io_timeout(ssize_t, asc_recv(fd, buff.data, buff.capacity), 3000, {
         send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, &buff);
-        mlog_info("<%d> timed out.", fd);
         goto __exit_premature;
     });
 
@@ -282,14 +281,13 @@ __recv_begin:
         &req.misc_headers.n_headers,
         0);
 
-    mlog_info("<%d>: %.*s", fd, U8_VEC_FMT(buff));
-    mlog_info("a");
+
     if (parse_result == -1) {
         send_response_back_host_error(fd, HTTP_BAD_REQUEST, &buff);
         goto __exit_premature;
     }
 
-    mlog_info("a");
+
     if (parse_result == -2) {
         send_response_back_host_error(fd, HTTP_HEADERS_TOO_LARGE, &buff);
         goto __exit_premature;
@@ -330,7 +328,6 @@ __recv_begin:
     req.misc_headers.table = misc_headers;
     req.misc_headers.capacity = PHR_HEADER_BUFF_SIZE * 2;
     http_status_code code = http_check_core_headers(&req, re);
-    mlog_info("code. %d", code);
     if (code != HTTP_OK) {
         send_response_back_host_error(fd, code, &buff);
         goto __exit_premature;
@@ -360,7 +357,6 @@ __recv_begin:
 
     struct method_args a = {0, &req};
     http_response* res =  await_ret(http_response*, spawn_task_on_fptr(re->method_fptr, &a));
-    mlog_info("a");
 
     // Error while processing the response
     if (!res) { 
@@ -403,8 +399,12 @@ __recv_begin:
     free(res);
 
     // Get back the begining if we are not closing the connection
-    if (req.core_headers.conn_keep_alive) goto __recv_begin;
-    
+    if (req.core_headers.conn_keep_alive) {
+        if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);
+        goto __recv_begin; 
+    }
+
+
 __exit:
     if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);
     if (!close_connection) goto __recv_begin;
@@ -418,7 +418,7 @@ __exit_premature:
 async(accept_loop, tcp_listener_t* t) {
     tcp_listener_t* t = arg(t);
     uint64_t shutdown_payload;
-    oneshot_pair_t graceful_shutdown = oneshot_new(sizeof(uint64_t), 0);
+    oneshot_pair_t graceful_shutdown = oneshot_new(sizeof(uint64_t), 1);
     mlog_info("Listening on %hhu.%hhu.%hhu.%hhu:%hu", 
         t->ip_addr[0],
         t->ip_addr[1],
@@ -443,6 +443,7 @@ async(accept_loop, tcp_listener_t* t) {
         }
     }
     oneshot_drop_rx((oneshot_rx_t)graceful_shutdown);
+    oneshot_assert_closed(graceful_shutdown);
     end_return_void();
 }
 
