@@ -31,7 +31,7 @@ routing_result router_get_entry(router* r, http_request* req) {
         if (re->route_str.len != req->path.len) continue;
         if (!re->route_str.data) continue;
         if (!memcmp(re->route_str.data, req->path.data, re->route_str.len)) {
-            if (re->r_kind != (request_kind)req->r_kind) return ROUT_RET_ERR(HTTP_METHOD_NOT_ALLOWED);
+            if (re->r_method != (request_method)req->r_method) return ROUT_RET_ERR(HTTP_METHOD_NOT_ALLOWED);
             return ROUT_RET_OK(re);
         }
     }

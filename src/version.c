@@ -79,7 +79,6 @@ static crefl_scope* _register_scope(void* crefl_handle, uint8_t* checksum) {
     if (found_idx == (size_t)-1) {
         size_t old_c = t->t.capacity;
         t->t.capacity *= 2;
-        mlog_info("realloc: %zu -> %zu", old_c, t->t.capacity);
         t->t.array = realloc(t->t.array, t->t.capacity * sizeof(crefl_scope*));
         memset((void**)t->t.array + old_c, 0, old_c * sizeof(void*));
         t->occupied = realloc(t->occupied, t->t.capacity);
@@ -98,7 +97,6 @@ static crefl_scope* _register_scope(void* crefl_handle, uint8_t* checksum) {
 
 
 static void _drop_scope(crefl_scope* s) {
-    mlog_info("+");
     size_t idx = s->at_index;
 
     if (CREFL_SCOPES_TABLE.occupied[idx] == 0) return;
@@ -109,7 +107,6 @@ static void _drop_scope(crefl_scope* s) {
     ((void**)CREFL_SCOPES_TABLE.t.array)[idx] = NULL;
     CREFL_SCOPES_TABLE.occupied[idx] = 0;
 
-    mlog_info("-");
 }
 
 
@@ -124,7 +121,6 @@ static void _append_context(app_context* ctx) {
     if (found_idx == (size_t)-1) {
         size_t old_c = t->t.capacity;
         t->t.capacity *= 2;
-        mlog_info("realloc: %zu -> %zu", old_c, t->t.capacity);
         t->t.array = realloc(t->t.array, t->t.chunk_size * t->t.capacity);
         memset((void**)t->t.array + old_c, 0, old_c * sizeof(void*));
         t->occupied = realloc(t->occupied, t->t.capacity);
@@ -143,12 +139,13 @@ static void _append_context(app_context* ctx) {
 }
 
 /**
- * @brief Free an app context from the table. 
+ * @brief Free an app context from the table.
+ * @returns 1 or 0 depending if it has dropped the scope or not 
  */
-void version_drop_ctx(app_context*  a, int try_drop_scope) {
-    mlog_info("+");
+int version_drop_ctx(app_context*  a, int try_drop_scope) {
 
     size_t idx = a->at_index;
+    int ret = 0;
 
     a->crefl_data->c_ctx_ref_count--;
 
@@ -157,22 +154,28 @@ void version_drop_ctx(app_context*  a, int try_drop_scope) {
     //dlclose(a->dl_handle);
     if (a->crefl_data->c_ctx_ref_count == 0 && try_drop_scope) {
         _drop_scope(a->crefl_data);
+        a->crefl_data = NULL;
+        ret = 1;
     }
 
     free(a);
     // Mark as free;
     ((void**)APP_CTX_TABLE.t.array)[idx] = NULL;
     APP_CTX_TABLE.occupied[idx] = 0;
-    mlog_info("-");
+
+    return ret;
 }
 
 
 static void _free_tables_exit() {
+    mlog_info("a");
     for (size_t i = 0; i < APP_CTX_TABLE.t.capacity; i++)
     {
+        mlog_info("a");
         if (APP_CTX_TABLE.occupied[i] != 1) continue;
         version_drop_ctx(((app_context**)APP_CTX_TABLE.t.array)[i], 1);
     }
+    mlog_info("a");
     free(CREFL_SCOPES_TABLE.t.array);
     free(CREFL_SCOPES_TABLE.occupied);
     free(APP_CTX_TABLE.t.array);
@@ -315,7 +318,7 @@ int load_app() {
     // If types data hasn't changed we use the old handle.
     uint8_t checksum[16];
     RHandle h = NULL;
-    int needs = _crefl_needs_reloading(curr_ver, checksum); (void)needs;
+    int needs = _crefl_needs_reloading(curr_ver, checksum);
     
     crefl_scope* old_sc = NULL;
     if (curr_ver) old_sc = curr_ver->crefl_data;
@@ -324,13 +327,14 @@ int load_app() {
     if (APP_CURR_VERSION - 1 != APP_RELOAD_VER_INITIAL_VAL) {
         // If there are no more clients, free the old context
         assert(curr_ver);
-        // Try to drop the crefl scope if we arent going to need it anymore
-        if (curr_ver->ref_count == 0)mlog_info("dropped from here");
-        if (curr_ver->ref_count == 0) version_drop_ctx(curr_ver, 1);
+        // Try to drop the crefl scope if we arent going to need it anymore.
+        // if we free it set it to null to not double free
+        if (curr_ver->ref_count == 0 && version_drop_ctx(curr_ver, needs))
+            old_sc = NULL;
     }
 
 
-    if (!1) {
+    if (!needs) {
         assert(old_sc);
         _register_context(r, app_handle, old_sc);
         return 1;

@@ -3,8 +3,6 @@
 
 #include <crefl/types.h>
 
-#define SERVER_HEADER_VAL "mcfw-dev (unstable)"
-
 typedef struct {
     uint32_t hr_enabled;
     uint32_t log_level;
@@ -40,5 +38,12 @@ REFLECT(struct) {
 #define COMPILATION_RED_HERRING HOST_FOLDER"/dont_reload"
 #define CREFL_FOLDER    ".crefl"
 #define CREFL_APP_FILE CREFL_FOLDER"/app_types.crefl"
+
+#define SERVER_HEADER_VAL "mcfw-dev (unstable)"
+
+#define MAX_HEADER_SIZE  8192     // 8kb
+#define MAX_BODY_SIZE 1024 * 1024 // 1 Mb
+// Needs to be a power of 2
+#define PHR_HEADER_BUFF_SIZE 64
 
 #endif // CONFIGS_H_

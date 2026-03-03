@@ -2,7 +2,7 @@
 #define PRIVATE_GLOB_H_
 
 #include "configs.h"
-#include "types.h"
+#include "version.h"
 #include <crefl/types.h>
 
 #define CACHED_ENUM_STR_STATUS g_cached_str_status
@@ -30,8 +30,8 @@ extern uint32_t APP_CURR_VERSION;
 
 extern char STR_SCRATCH[4096];
 
-extern const int req_deserializing_lut[3];
-extern const int req_serializing_lut[3];
-extern char* str_response_type_lut[3];
+extern const int req_deserializing_lut[];
+extern const int req_serializing_lut[];
+extern char* str_response_type_lut[];
 
 #endif // PRIVATE_GLOB_H_

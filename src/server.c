@@ -11,10 +11,12 @@
 #include <crefl/scope.h>
 #include <crefl/serial/formats.h>
 
+#include "vendor/picohttpparser.h"
+
 #include "private/log.h"
 #include "public/types.h"
 #include "public/router.h"
-#include "public/http_interface.h"
+#include "public/http.h"
 #include "private/http.h"
 #include "private/router.h"
 #include "private/version.h"
@@ -30,7 +32,7 @@ static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg);
 
 struct method_args {
     size_t padding;
-    http_request req;
+    http_request* req;
 };
 
 static inline char* get_gmt_date(char* write_at, size_t len) {
@@ -49,15 +51,16 @@ static inline char* get_gmt_date(char* write_at, size_t len) {
 #define STRIP_HTTP_PREFIX(_str_expr) (_str_expr + 5)
 
 /**
- * @brief send a bodyless error back to the client.
- * This is when 404's, 405's and simple 400's are sent.
+ * @brief Send a bodyless error back to the client.
+ * This is when 500's, 404's, 405's and simple 400's are sent.
+ * @attention Assumption is made that the error response fits inside the buffer.
  */
 void send_response_back_host_error(int fd, int code, u8_vec* buffer) {
     const char* str_status = refl_enum_get_label((REnum*)CACHED_ENUM_STR_STATUS, code);
     if (!str_status) str_status = "INTERNAL_SERVER_ERROR";
 
     char* fmt_template = 
-        "HTTP/1.0 %03d %s\r\n"
+        "HTTP/1.1 %03d %s\r\n"
         "Server: "SERVER_HEADER_VAL"\r\n"
         "Connection: close\r\n"
         "\r\n"
@@ -74,7 +77,7 @@ void send_response_back_host_error(int fd, int code, u8_vec* buffer) {
     }
 }
 
-void send_response_back(int fd, u8_vec* buffer, http_response* res) {
+void send_response_back(int fd, u8_vec* buffer, http_response* res, int keep_alive) {
     // Get content type header
     char* ctype_str = str_response_type_lut[res->type];
     if (ctype_str == NULL) ctype_str = "application/octet-stream";
@@ -86,20 +89,37 @@ void send_response_back(int fd, u8_vec* buffer, http_response* res) {
     char date_buff[32];
 
     char* fmt_template = 
-        "HTTP/1.0 %03d %s\r\n"
+        "HTTP/1.1 %03d %s\r\n"
         "Server: "SERVER_HEADER_VAL"\r\n"
         "Date: %s\r\n"
-        "Connection: close\r\n"
+        "Connection: %s\r\n"
         "Content-Type: %s\r\n"
         "Access-Control-Allow-Origin: *\r\n"
         "Content-Length: %zu\r\n"
         "\r\n"
-        "%.*s"
         ;
     buffer->count = snprintf((char*)buffer->data, buffer->capacity, fmt_template, 
-        res->code, STRIP_HTTP_PREFIX(str_status), get_gmt_date(date_buff, 32), ctype_str, res->buff.count, U8_VEC_FMT(res->buff));
+        res->code, STRIP_HTTP_PREFIX(str_status), get_gmt_date(date_buff, 32), (keep_alive)? "keep-alive" : "close", ctype_str, res->buff.count);
 
-    ssize_t sz = io_timeout(ssize_t, asc_send(fd, buffer->data, buffer->count), SEND_TIMEOUT, {
+    // If somehow headers get too heavy and exceed HEADER_MAX_SIZE
+    if (buffer->count >= buffer->capacity) {
+        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, buffer);
+        return;
+    }
+
+    struct iovec vecs[2] = {
+        // Headers
+        {.iov_base = buffer->data, .iov_len = buffer->count},
+        // Body
+        {.iov_base = res->buff.data, .iov_len = res->buff.count}
+    };
+
+
+    struct msghdr full_msg = {
+        .msg_iov = vecs, .msg_iovlen = 2
+    };
+
+    ssize_t sz = io_timeout(ssize_t, asc_sendmsg(fd, &full_msg), SEND_TIMEOUT, {
         mlog_warn("<%d> timed out", fd);
         return;
     });
@@ -161,8 +181,8 @@ http_status_code try_deserialize_body(const router_entry* restrict re, const app
     }
 
     if (dr.st == DR_ERR) return HTTP_UNPROCESABLE_CONTENT;
-    req->decoded.data = dr.data.buff;
-    req->decoded.capacity = req->decoded.count = s->total_size;
+    req->deserialized.data = dr.data.buff;
+    req->deserialized.capacity = req->deserialized.count = s->total_size;
     if (out_rs) *out_rs = s;
     return HTTP_OK;
 }
@@ -173,29 +193,43 @@ typedef struct {
    double height;
 } user_create_payload;
 
-static inline void check_and_free_deserialized(RStruct* s, u8_vec* decoded) {
+static inline void check_and_free_deserialized(RStruct* s, u8_vec* deserialized) {
     if (!s) { 
         mlog_error("Couldn't get the metadata to free the deserialized data.");
         return;
     }
-    if (!decoded->data) return;
-    refl_generic_destructor(s, decoded->data);
+    if (!deserialized->data) return;
+    refl_generic_destructor(s, deserialized->data);
 }
 
-#define MSG_MAX_LEN 4096
+
+static int _get_req_from_str(u8_slice* method) {
+    REnum* e = (REnum*)CACHED_ENUM_REQ_KIND;
+    for (size_t i = 0; i < e->n_elements; i++)
+    {
+        size_t method_len = strlen(e->names[i]);
+        if (method_len != method->len) continue;
+        if (!memcmp(method->data, e->names[i], method->len)) return e->indexes[i];
+    }
+    
+    return -1;
+}
 
 /**
- * @brief mock route protocol <METHOD> <ROUTE> [<body>] -> GET /about, POST /getuser {"id":2}
- * TEMP client_handler
+ * @brief Entry point for every tcp connection.
  */
 async(client_handler, int fd) {
     detach;
     int fd = clean_on_drop(arg(fd));
+    int close_connection = 0;
 
     // Buffer to get the user response.
     // This buffer will be reuse when sending the response back if posible.
-    char __b[MSG_MAX_LEN];
-    u8_vec buff = {.data = (uint8_t*)__b, .capacity = MSG_MAX_LEN, .count = 0};
+    char __b[MAX_HEADER_SIZE];
+    u8_vec buff = {.data = (uint8_t*)__b, .capacity = MAX_HEADER_SIZE, .count = 0};
+
+    // Pico headers buffer
+    struct phr_header phr_headers[PHR_HEADER_BUFF_SIZE];
     
     // Hot reloading: get the current version and get the most recent router.
     size_t version = APP_CURR_VERSION;
@@ -207,11 +241,16 @@ async(client_handler, int fd) {
     // Increase reference count the app ctx.
     c->ref_count++;
     router* rout = &c->router;
+
+    ssize_t sz = 0;
+
+__recv_begin:
     
 
-    ssize_t sz = io_timeout(ssize_t, asc_recv(fd, buff.data, buff.capacity), 600000, {
-        mlog_warn("<%d> timed out", fd);
-        task_return_void();
+    sz = io_timeout(ssize_t, asc_recv(fd, buff.data, buff.capacity), 3000, {
+        send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, &buff);
+        mlog_info("<%d> timed out.", fd);
+        goto __exit_premature;
     });
 
     if (sz < 0) {
@@ -219,29 +258,84 @@ async(client_handler, int fd) {
         goto __exit_premature;
     } else if (sz == 0) {
         send_response_back_host_error(fd, HTTP_BAD_REQUEST, &buff);
+        mlog_info("a");
         goto __exit_premature;
     }
 
+
+    // Build request struct
+    http_request req = (http_request){0}; 
+    req.misc_headers.n_headers = PHR_HEADER_BUFF_SIZE;
     buff.count = sz;
-    //mlog_info("Client sent: %.*s", U8_VEC_FMT(buff));
+    u8_slice method = {0};
 
-    http_request req = (http_request){0};
+    // ret -> bytes consumed or error.
+    int parse_result = phr_parse_request(
+        (const char*)buff.data, 
+        buff.count, 
+        (const char**)&method.data, 
+        &method.len, 
+        (const char**)&req.path.data, 
+        &req.path.len, 
+        &req.minor_version,
+        phr_headers, 
+        &req.misc_headers.n_headers,
+        0);
 
-    // Parse input buffer
-    routing_result r = http_mock_route_parser(&buff, &req);
+    mlog_info("<%d>: %.*s", fd, U8_VEC_FMT(buff));
+    mlog_info("a");
+    if (parse_result == -1) {
+        send_response_back_host_error(fd, HTTP_BAD_REQUEST, &buff);
+        goto __exit_premature;
+    }
+
+    mlog_info("a");
+    if (parse_result == -2) {
+        send_response_back_host_error(fd, HTTP_HEADERS_TOO_LARGE, &buff);
+        goto __exit_premature;
+    }
+
+    /**
+     * TEMP until correctly handling the body
+     */
+    if ((size_t)sz == buff.capacity) {
+        send_response_back_host_error(fd, HTTP_CONTENT_TOO_LARGE, &buff);
+        goto __exit_premature;
+    } 
+
+    // Set the str view of the body if there is one
+    if ((size_t)parse_result < buff.count) {
+        req.body.data = buff.data + (size_t)parse_result;
+        // Set the len later.
+    }
+
+    struct http_header misc_headers[PHR_HEADER_BUFF_SIZE * 2];
+    // Since we are dealing with external stacks i don't trust it to be 0-initialized.
+    memset(misc_headers, 0, sizeof(misc_headers));
+
+    http_create_misc_headers_hashtable(phr_headers, misc_headers, PHR_HEADER_BUFF_SIZE * 2);
+
+    // Set the method and search for the handler
+    req.r_method = (request_method)_get_req_from_str(&method);
+    routing_result r = router_get_entry(rout, &req);
     if (r.st == MCFW_ERR) {
         send_response_back_host_error(fd, r.data.err, &buff);
         goto __exit_premature;
     }
 
-    // Try to find handler
-    r = router_get_entry(rout, &req);
-    if (r.st == MCFW_ERR) {
-        send_response_back_host_error(fd, r.data.err, &buff);
-        goto __exit_premature;
-    }
-
+    // The handler for the request.
     router_entry* re = (router_entry*)r.data.ok_data;
+
+    
+    req.misc_headers.table = misc_headers;
+    req.misc_headers.capacity = PHR_HEADER_BUFF_SIZE * 2;
+    http_status_code code = http_check_core_headers(&req, re);
+    mlog_info("code. %d", code);
+    if (code != HTTP_OK) {
+        send_response_back_host_error(fd, code, &buff);
+        goto __exit_premature;
+    }
+
 
     if (re->method_fptr == NULL) {
         mlog_error("The handler responsible for route \"%.*s\" if a NULL pointer.", U8_SLICE_FMT(re->route_str));
@@ -255,7 +349,7 @@ async(client_handler, int fd) {
     int needs_deserialization = req_deserializing_lut[re->expect];
 
     // Deserializing if its required.
-    if (needs_deserialization && re->r_kind >= PAYLOAD_METHODS_IDX) {
+    if (needs_deserialization && re->r_method >= PAYLOAD_METHODS_IDX) {
         http_status_code code = try_deserialize_body(re, c, &req, &deser_type);
         if (code != HTTP_OK) {
             send_response_back_host_error(fd, code, &buff);
@@ -264,27 +358,24 @@ async(client_handler, int fd) {
     }
 
 
-    struct method_args a = {0, req};
+    struct method_args a = {0, &req};
     http_response* res =  await_ret(http_response*, spawn_task_on_fptr(re->method_fptr, &a));
-
     mlog_info("a");
 
     // Error while processing the response
     if (!res) { 
         send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff);
         mlog_error("null ptr received from method: %s %.*s", 
-            refl_enum_get_label((REnum*)CACHED_ENUM_REQ_KIND, req.r_kind), U8_SLICE_FMT(req.path));
+            refl_enum_get_label((REnum*)CACHED_ENUM_REQ_KIND, req.r_method), U8_SLICE_FMT(req.path));
         goto __exit;
     } else if (res->signature != HTTP_RES_SIGNATURE) {
         send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff);
 
         mlog_error("http response received from method: %s %.*s is garbage",
-            refl_enum_get_label((REnum*)CACHED_ENUM_REQ_KIND, req.r_kind), U8_SLICE_FMT(req.path));
+            refl_enum_get_label((REnum*)CACHED_ENUM_REQ_KIND, req.r_method), U8_SLICE_FMT(req.path));
 
         goto __exit;
     }
-
-    mlog_info("a");
     
     RStruct* ser_type = NULL;
     
@@ -303,22 +394,23 @@ async(client_handler, int fd) {
         refl_generic_destructor(ser_type, old_buff.data);
     }
 
-    mlog_info("a");
 
     // Send handler's response back
-    send_response_back(fd, &buff, res);
+    send_response_back(fd, &buff, res, req.core_headers.conn_keep_alive);
 
     // Freeings
     U8_VEC_FREE(res->buff); // Needs to be NULL if no response body.
     free(res);
 
+    // Get back the begining if we are not closing the connection
+    if (req.core_headers.conn_keep_alive) goto __recv_begin;
+    
 __exit:
-    if (needs_deserialization) check_and_free_deserialized(deser_type, &req.decoded);
+    if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);
+    if (!close_connection) goto __recv_begin;
 __exit_premature:
-    mlog_info("a");
     c->ref_count--;
     if (c->ref_count == 0 && APP_CURR_VERSION != version) {
-        mlog_info("called");
         version_drop_ctx(c, 1); }
     end_return_void();
 }
@@ -350,9 +442,7 @@ async(accept_loop, tcp_listener_t* t) {
             task_spawn(client_handler, .fd = client_fd);
         }
     }
-    mlog_info("bef drop");
     oneshot_drop_rx((oneshot_rx_t)graceful_shutdown);
-    mlog_info("aft drop");
     end_return_void();
 }
 
@@ -378,7 +468,7 @@ async(server_init) {
     refl_threadlocal_init(0);
 
     // Load the cached reflected types
-    CACHED_ENUM_REQ_KIND = refl_fetch_enum("request_kind");
+    CACHED_ENUM_REQ_KIND = refl_fetch_enum("request_method");
     CACHED_ENUM_STR_STATUS = refl_fetch_enum("http_status_code");
 
 
@@ -391,8 +481,9 @@ async(server_init) {
     load_app();
     task_handle_t t_watcher;
     if (ARG_FLAGS.hr_enabled) t_watcher = task_spawn(version_watch_async);
+
     await(task_spawn(accept_loop, .t = t));
-    mlog_info("returned");
+    
     if (ARG_FLAGS.hr_enabled) drop_task(t_watcher);
     end_return(int, 0);
 }
@@ -412,4 +503,5 @@ void server_start() {
     } 
     mlog_info("Server closed.");
     worker_destroy(w);
+    mlog_info("a");
 }

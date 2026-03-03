@@ -1,10 +1,22 @@
 #ifndef PRIVATE_HTTP_H_
 #define PRIVATE_HTTP_H_
 
-#include "types.h"
-/**
- * @brief mock route protocol <METHOD> <ROUTE>\r\n\r\n[<body>] -> GET /about\r\n\r\n, POST /getuser\r\n\r\n{"id":2}
- */
-routing_result http_mock_route_parser(u8_vec* full_buffer, http_request* out_buffer);
+#include "../vendor/picohttpparser.h"
+#include "../public/types.h"
+#include "../public/router.h"
+
+
+#define HTTP_RES_SIGNATURE 0x52455350 // "RESP"
+
+typedef struct __MCFW_HTTP_RESPONSE__ {
+    uint32_t signature;
+    http_status_code code;
+    http_content_type type;
+    char* typename;
+    u8_vec buff;
+} http_response;
+
+void http_create_misc_headers_hashtable(struct phr_header* headers, struct http_header* out_headers, size_t buff_size);
+http_status_code http_check_core_headers(http_request* restrict req, router_entry* restrict re);
 
 #endif // PRIVATE_HTTP_H_

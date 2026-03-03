@@ -54,6 +54,7 @@ else
   Q := @
 endif
 
+$(OUT_OBJ)/gperf/str_to_content_type.o: CFLAGS += -Wno-missing-field-initializers
 
 all: $(BIN_HOST)
 all:
