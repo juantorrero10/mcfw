@@ -3,7 +3,8 @@
 
 #include <asclib/sync.h>
 
+oneshot_tx_ref_t resources_graceful_shutdown();
+uint64_t* resources_total_clients();
 
-oneshot_tx_ref_t server_get_graceful_shutdown_tx();
 
 #endif // PUBLIC_SERVER_H_

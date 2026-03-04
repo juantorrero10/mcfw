@@ -3,17 +3,6 @@
 
 #include "types.h"
 
-#define HTTP_RES_JSON(_code, _type, _instance) ({\
-    http_response_create(\
-        _code, CONTENT_JSON, #_type, \
-        U8_VEC(_instance, sizeof(_type)));\
-})
-#define HTTP_RES_PLAIN(_code, _u8_vec) http_response_create((_code), CONTENT_TEXT, NULL, (_u8_vec))
-#define HTTP_RES_EMPTY(_code) http_response_create((_code), CONTENT_TEXT, NULL, (u8_vec){0})
-#define HTTP_RES_OK_JSON(_type, _instance) HTTP_RES_JSON(HTTP_OK, _type, (_instance)) 
-#define HTTP_RES_OK_PLAIN(_u8_vec) HTTP_RES_PLAIN(HTTP_OK, (_u8_vec))
-#define HTTP_RES_CSTR(_code, _cstr) HTTP_RES_PLAIN(_code, U8_VEC_STR(_cstr))
-#define HTTP_RES_OK_CSTR(_cstr) HTTP_RES_CSTR(HTTP_OK, _cstr)
 
 REFLECT(enum) {
     HTTP_OK = 200,
@@ -51,8 +40,6 @@ typedef enum {
     CONTENT_JSON,
     CONTENT_BINARY
 } http_content_type;
-
-typedef struct __MCFW_HTTP_RESPONSE__ http_response;
 
 #define PAYLOAD_METHODS_IDX 3
 
@@ -94,7 +81,7 @@ struct http_core_headers {
 };
 
 
-typedef struct {
+typedef struct __MCFW_HTTP_REQUEST__ {
     int minor_version;
     request_method r_method;
     u8_slice path;
@@ -112,7 +99,43 @@ typedef struct {
     http_header_table misc_headers;
 } http_request;
 
-http_response* http_response_create(http_status_code c, http_content_type res_type, char* __type, u8_vec buff);
+typedef struct __MCFW_HTTP_RESPONSE__ http_response;
+
+http_response* http_response_create(http_status_code c, http_content_type res_type, u8_slice mime_type, char* __type, u8_vec buff);
+
+
+#define RES(_code, _content_type, _u8_vec) http_response_create((_code), (_content_type), (u8_slice){0}, NULL, (_u8_vec))
+#define RES_OK(_content_type, _u8_vec) http_response_create(HTTP_OK, (_content_type), (u8_slice){0}, NULL, (_u8_vec))
+#define RES_EMPTY(_code) http_response_create((_code), CONTENT_NOT_SPECIFIED, (u8_slice){0}, NULL, (u8_vec){0})
+#define RES_OTHER(_code, _mime_type_string, _u8_vec) http_response_create((_code), CONTENT_OTHER, SLICE_CSTR(_mime_type_string), NULL, (_u8_vec))
+
+#define RES_SERIALIZE(_code, _content_type, _type, _u8_vec) ({\
+    http_response_create(\
+        _code, CONTENT_JSON, (u8_slice){0}, #_type, (_u8_vec));\
+})
+
+#define RES_SERIALIZE_OK(_content_type, _type, _u8_vec) RES_SERIALIZE(HTTP_OK, _content_type, _type, _u8_vec)
+
+
+typedef enum {
+    HTTP_FLAG_CLOSE_CONN            = 1,
+    HTTP_FLAG_DEALLOC_BODY          = 1 << 1,
+    HTTP_FLAG_DEEP_DEALLOC          = 1 << 2,   
+    HTTP_FLAG_TRANSFER_INMEDIATE    = 1 << 3, //default  // TODO: transfer methods
+    HTTP_FLAG_TRANSFER_CHUNKED      = 1 << 4,
+    HTTP_FLAG_TRANSFER_FILE         = 1 << 5
+} http_response_flag_mask;
+
+// Response flags
+http_response* http_res_set_flag(http_response* r, http_response_flag_mask m, int val);
+
+#define RES_F_CLOSE(_res_expr) http_res_set_flag((_res_expr), HTTP_FLAG_CLOSE_CONN, 1);
+#define RES_F_DEALLOC(_res_expr) http_res_set_flag((_res_expr), HTTP_FLAG_DEALLOC_BODY, 1);
+#define RES_F_DEEP(_res_expr) http_res_set_flag((_res_expr), HTTP_FLAG_DEEP_DEALLOC, 1);
+
+
+
+
 /**
  * @brief hash table lookup for a name in the headers table.
  * @return table entry with the name and the value or NULL string slice if not found.

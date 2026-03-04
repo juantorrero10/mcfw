@@ -168,14 +168,11 @@ int version_drop_ctx(app_context*  a, int try_drop_scope) {
 
 
 static void _free_tables_exit() {
-    mlog_info("a");
     for (size_t i = 0; i < APP_CTX_TABLE.t.capacity; i++)
     {
-        mlog_info("a");
         if (APP_CTX_TABLE.occupied[i] != 1) continue;
         version_drop_ctx(((app_context**)APP_CTX_TABLE.t.array)[i], 1);
     }
-    mlog_info("a");
     free(CREFL_SCOPES_TABLE.t.array);
     free(CREFL_SCOPES_TABLE.occupied);
     free(APP_CTX_TABLE.t.array);

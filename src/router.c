@@ -50,15 +50,15 @@ static void u8_vec_push(u8_vec* v, u8_slice* s) {
 router* router_create(router_entry* entries, size_t amount) {
     router_entry* _entries = calloc(sizeof(router_entry), amount);
     memcpy(_entries, entries, sizeof(router_entry) * amount);
-    u8_vec routes_pool = U8_VEC_NEW(64);
-    u8_vec typename_pool = U8_VEC_NEW(64);
+    u8_vec routes_pool = VEC_NEW(64);
+    u8_vec typename_pool = VEC_NEW(64);
     for (size_t i = 0; i < amount; i++)
     {
         // Push route string
         if (!entries[i].route_str.data) { 
             mlog_error("Received a null string for route idx: %zu", i);
-            U8_VEC_FREE(routes_pool);
-            U8_VEC_FREE(typename_pool);
+            VEC_FREE(routes_pool);
+            VEC_FREE(typename_pool);
             return NULL;
         }
         u8_vec_push(&routes_pool, &entries[i].route_str);
@@ -67,8 +67,8 @@ router* router_create(router_entry* entries, size_t amount) {
         if (!req_deserializing_lut[entries[i].expect]) continue;
         if (!entries[i].deserialize_typename.data) { 
             mlog_error("Received a null string for type name on route idx: %zu", i);
-            U8_VEC_FREE(routes_pool);
-            U8_VEC_FREE(typename_pool);
+            VEC_FREE(routes_pool);
+            VEC_FREE(typename_pool);
             return NULL; 
         }
         u8_vec_push(&typename_pool, &entries[i].deserialize_typename);
@@ -83,7 +83,7 @@ router* router_create(router_entry* entries, size_t amount) {
 
         // Get str offsets for the route
         word_end_route += entries[i].route_str.len;
-        _entries[i].route_str = U8_VIEW(routes_pool.data, word_start_route, word_end_route);
+        _entries[i].route_str = SLICE_VIEW(routes_pool.data, word_start_route, word_end_route);
         word_start_route = word_end_route;
     
 
@@ -91,7 +91,7 @@ router* router_create(router_entry* entries, size_t amount) {
         // Get for the typename if necesary
         if (!req_deserializing_lut[entries[i].expect]) continue;
         word_end_typename += entries[i].deserialize_typename.len;
-        _entries[i].deserialize_typename = U8_VIEW(typename_pool.data, word_start_typename, word_end_typename);
+        _entries[i].deserialize_typename = SLICE_VIEW(typename_pool.data, word_start_typename, word_end_typename);
         word_start_typename = word_end_typename; 
     }
 
@@ -106,7 +106,7 @@ router* router_create(router_entry* entries, size_t amount) {
 
 void router_destroy(router* r) {
     if (r->signature != ROUTER_SIGNATURE) return;
-    U8_VEC_FREE(r->routes_str_pool);
-    U8_VEC_FREE(r->types_str_pool);
+    VEC_FREE(r->routes_str_pool);
+    VEC_FREE(r->types_str_pool);
     free(r->entries.array);
 }

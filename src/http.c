@@ -98,7 +98,7 @@ str_to_content_type (register const char *str, register size_t len);
 
 http_status_code http_check_core_headers(http_request* restrict req, router_entry* restrict re) {
     // Connection
-    u8_slice connection = http_get_header_val(U8_CSTR_LIT_SLICE("Connection"), &req->misc_headers);
+    u8_slice connection = http_get_header_val(SLICE_CSTR_LIT("Connection"), &req->misc_headers);
     // No connection header or malformed -> keep-alive. (HTTP 1.1+)
     req->core_headers.conn_keep_alive = 
     (   
@@ -109,15 +109,15 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
     )? true : false;
 
     // Accept, the app will deal with the possible NULL.
-    req->core_headers.accept = http_get_header_val(U8_CSTR_LIT_SLICE("Accept"), &req->misc_headers);
+    req->core_headers.accept = http_get_header_val(SLICE_CSTR_LIT("Accept"), &req->misc_headers);
     // Host, mandatory in HTTP 1.1+
-    req->core_headers.host = http_get_header_val(U8_CSTR_LIT_SLICE("Host"), &req->misc_headers);
+    req->core_headers.host = http_get_header_val(SLICE_CSTR_LIT("Host"), &req->misc_headers);
     if (req->minor_version >= 1 && !req->core_headers.host.data) {
         return HTTP_BAD_REQUEST;
     }
 
     // Content-Length
-    u8_slice content_length = http_get_header_val(U8_CSTR_LIT_SLICE("Content-Length"), &req->misc_headers);
+    u8_slice content_length = http_get_header_val(SLICE_CSTR_LIT("Content-Length"), &req->misc_headers);
     req->core_headers.content_length = 0;
 
     if (content_length.data) {
@@ -142,7 +142,7 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
 
         req->body.len = req->core_headers.content_length;
 
-        u8_slice content_type = http_get_header_val(U8_CSTR_LIT_SLICE("Content-Type"), &req->misc_headers);
+        u8_slice content_type = http_get_header_val(SLICE_CSTR_LIT("Content-Type"), &req->misc_headers);
         if (content_type.data) {
             struct mime_type* m = str_to_content_type((char*)content_type.data, content_type.len);
             req->core_headers.content_type = m? m->type : CONTENT_OTHER;
@@ -166,13 +166,44 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
 }
 
 
-http_response* http_response_create(http_status_code c, http_content_type res_type, char* __type, u8_vec buff) {
+http_response* http_response_create(http_status_code c, http_content_type res_type, u8_slice mime_type, char* __type, u8_vec buff) {
     http_response* r = malloc(sizeof(http_response));
     *r = (http_response){0};
-    r->typename = __type;
     r->signature = HTTP_RES_SIGNATURE;
+    r->flags = HTTP_FLAG_TRANSFER_INMEDIATE;
     r->buff = buff;
     r->code = c;
     r->type = res_type;
+    if (mime_type.data == NULL) {
+        r->type_string.data = (uint8_t*)((res_type > 0 && res_type < CONTENT_TYPE_N_MEMB)? str_response_type_lut[res_type] : NULL);
+        if (r->type_string.data != NULL) r->type_string.len = strlen((char*)r->type_string.data);
+    }
+    else r->type_string = mime_type;
+    if (res_type < 0) {
+        r->serialize = 0;
+        r->serialize_typename = NULL;
+        return r;
+    }
+
+    int ser = req_deserializing_lut[res_type];
+    if (!ser && __type != NULL) {
+        r->type = CONTENT_BINARY;   // application/octet-stream for unknown formats.
+        if (res_type >= CONTENT_TYPE_N_MEMB) {
+            mlog_warn("couldn't serialize due to bad type: %d, sending raw data", (int)res_type);   
+            return r;
+        }
+        char* mime_type_str = str_response_type_lut[res_type];
+        mlog_warn("MCFW doesn't support serialization of type: %.s", mime_type_str);
+        return r;
+    }
+    r->serialize = ser;
+    r->serialize_typename = __type;
+    return r;
+}
+
+inline http_response* http_res_set_flag(http_response* r, http_response_flag_mask m, int val) {
+    // Normalize to 0,1
+    val = val != 0;
+    if (val) r->flags |= (val * m); else r->flags &= (val * m);
     return r;
 }

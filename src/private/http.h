@@ -11,8 +11,15 @@
 typedef struct __MCFW_HTTP_RESPONSE__ {
     uint32_t signature;
     http_status_code code;
+
     http_content_type type;
-    char* typename;
+    u8_slice type_string;
+    
+    uint64_t flags;
+    
+    bool serialize;
+    char* serialize_typename;
+
     u8_vec buff;
 } http_response;
 
