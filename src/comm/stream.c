@@ -51,7 +51,8 @@ static streaming_result __stream_full_inm(http_stream* s) {
     time_t new_time;
 
     while(s->data.inm.count < s->data.inm.capacity) {
-        mlog_info("iter... tr: %zu", s->data.inm.count);
+        //mlog_info("iter... tr: %zu", s->data.inm.count);
+        //mlog_info("read sz: %zu", MIN(s->data.inm.capacity - s->data.inm.count, READ_MAX));
         streaming_result r = STRET_ERR(HTTP_REQUEST_TIMEOUT);
         ssize_t sz = io_timeout(ssize_t, 
             asc_recv(s->client_fd, s->data.inm.data + s->data.inm.count, 

@@ -75,16 +75,18 @@ int update_checksum(char* binary_file) {
             _Exit(1);
         }
         uint64_t old_cs;
-        read(fd, &old_cs, 8);
+        ssize_t sz = read(fd, &old_cs, 8);
+        assert(sz >= 0);
         if (cs == old_cs) { close(fd); return 1; }
         lseek(fd, 0, SEEK_SET);
-        write(fd, &cs, 8);
+        assert(write(fd, &cs, 8) >= 0);
         close(fd);
         return 0;
     }
     int fd = creat(CHECKSUM_FILE, 0644);
     assert(fd);
-    write(fd, &cs, 8);
+    ssize_t sz = write(fd, &cs, 8);
+    assert(sz > 0);
     close(fd);
     return 0;
 }

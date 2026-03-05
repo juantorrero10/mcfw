@@ -97,6 +97,7 @@ static crefl_scope* _register_scope(void* crefl_handle, uint8_t* checksum) {
 
 
 static void _drop_scope(crefl_scope* s) {
+    mlog_info("dropped");
     size_t idx = s->at_index;
 
     if (CREFL_SCOPES_TABLE.occupied[idx] == 0) return;

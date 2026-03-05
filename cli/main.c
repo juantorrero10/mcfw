@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #include <crefl/types.h>
 #include <crefl/core.h>
@@ -110,7 +111,7 @@ int main(int argc, const char** argv) {
     size_t cur = ftell(f);
     fseek(f, 0, SEEK_SET);
     char* j = malloc(cur + 1);
-    fread(j, cur, 1, f);
+    ssize_t sz = fread(j, cur, 1, f); (void)sz;
     fclose(f);
 
     DeserializeResult dr = deserialize_json(config_type, j, cur);

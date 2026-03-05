@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -251,6 +252,7 @@ int cmd_build(int recompilation) {
 
     // For the progress bar.
     char** processing_files = calloc(sizeof(char*), max_jobs);
+    memset(processing_files, 0, sizeof(void*) * max_jobs);
     pid_t* pid_pool = calloc(sizeof(pid_t), max_jobs);
     memset(pid_pool, 0, sizeof(pid_t) * max_jobs);
     size_t idx;
@@ -345,8 +347,9 @@ __link:
         fflush(stdout);
         // Clear the log and write a " " so you can use it as a errors screen 
         if (g_flags.silent_comp) {
-            int fd = open(COMPERR_REDIRECT, O_CREAT | O_WRONLY | O_TRUNC);
-            write(fd, " ", 1);  
+            int fd = open(COMPERR_REDIRECT, O_CREAT | O_WRONLY | O_TRUNC, 0);
+            ssize_t sz = write(fd, " ", 1);
+            assert(sz >= 0);
             close(fd);
         }
     } else {

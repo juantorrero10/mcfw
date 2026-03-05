@@ -27,6 +27,8 @@
 #include "private/glob.h"
 #include "private/log.h"
 
+#define MIN(a, b) ((a) < (b))? (a) : (b)
+
 
 #define TOTAL_CLIENTS g_n_clients
 static uint64_t TOTAL_CLIENTS = 0;
@@ -56,19 +58,19 @@ static inline char* get_gmt_date(char* write_at, size_t len) {
  * This is when 500's, 404's, 405's and simple 400's are sent.
  * @attention Assumption is made that the error response fits inside the buffer.
  */
-void send_response_back_host_error(int fd, int code, u8_vec* buffer) {
+void send_response_back_host_error(int fd, int code, u8_vec* buffer, int keep_alive) {
     const char* str_status = refl_enum_get_label((REnum*)CACHED_ENUM_STR_STATUS, code);
     if (!str_status) str_status = "INTERNAL_SERVER_ERROR";
 
     char* fmt_template = 
         "HTTP/1.1 %03d %s\r\n"
         "Server: "SERVER_HEADER_VAL"\r\n"
-        "Connection: close\r\n"
+        "Connection: %s\r\n"
         "Content-Length: 0\r\n"
         "\r\n"
     ;
     buffer->count = snprintf((char*)buffer->data, buffer->capacity, fmt_template, code, 
-            STRIP_HTTP_PREFIX(str_status));
+            STRIP_HTTP_PREFIX(str_status), (keep_alive)? "keep-alive" : "close");
 
     ssize_t sz = io_timeout(ssize_t, asc_send(fd, buffer->data, buffer->count), SEND_TIMEOUT, {
         mlog_warn("<%d> timed out", fd);
@@ -111,7 +113,7 @@ void send_response_back(int fd, http_response* res, int keep_alive) {
 
     // If somehow headers get too heavy and exceed HEADER_MAX_SIZE - 2 (trailing \r\n)
     if (buffer.count >= buffer.capacity - 2) {
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buffer);
+        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buffer, 0);
         return;
     }
 
@@ -221,11 +223,13 @@ static int _get_req_from_str(u8_slice* method) {
  */
 async(client_handler, int fd) {
     detach;
-    int fd = arg(fd);
+    int fd = clean_on_drop(arg(fd));
+    mlog_info("(+): %d", fd);
     // Global resources
     TOTAL_CLIENTS++;
 
     int close_connection = 0;
+    int needs_deserialization = 0;
 
     // Buffer to get the user response.
     // This buffer will be reuse when sending the response back if posible.
@@ -239,7 +243,7 @@ async(client_handler, int fd) {
     size_t version = APP_CURR_VERSION;
     app_context* c = version_get_ctx(version);
     if (!c) { 
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff);
+        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, 0);
         goto __exit_premature;
     }
     // Increase reference count the app ctx.
@@ -252,30 +256,28 @@ __recv_begin:
 
     ssize_t sz = 0;
     time_t curr_time = time(NULL);
-
+    
     // pipelining
     u8_slice pipeline_trail = {0};
-
-
+    
+    
 __recv_att:
 
-
     sz = io_timeout(ssize_t, asc_recv(fd, buff.data + buff.count, buff.capacity - buff.count), RECV_HEADER_TIMEOUT, {
-        if (buff.count > 0) send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, &buff);
+        if (buff.count > 0) send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, &buff, 0);
         goto __exit_premature;
     });
     if (sz < 0) {
         mlog_error("Couldn't receive from client <%d>: %s", fd, strerror(errno));
         goto __exit_premature;
     } else if (sz == 0) {
-        send_response_back_host_error(fd, HTTP_BAD_REQUEST, &buff);
         goto __exit_premature;
     }
     buff.count += sz;
 
     // Check for total timeout
     if (time(NULL) - curr_time > TOTAL_HEADER_TIMEOUT) {
-        send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, &buff);
+        send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, &buff, 0);
         goto __exit_premature;
     }
 
@@ -307,16 +309,16 @@ __parse:
     // Bad headers
     if (parse_result == -1) {
         mlog_info("bad buffer: %.*s", VEC_FMT(buff));
-        send_response_back_host_error(fd, HTTP_BAD_REQUEST, &buff);
+        send_response_back_host_error(fd, HTTP_BAD_REQUEST, &buff, 0);
         goto __exit_premature;
     }
 
 
     // Incomplete headers
     if (parse_result == -2) {
-        if (buff.count < buff.capacity) goto __recv_att;
-        send_response_back_host_error(fd, HTTP_HEADERS_TOO_LARGE, &buff);
-        goto __exit_premature;
+        if (buff.count < buff.capacity) goto __recv_att; 
+        send_response_back_host_error(fd, HTTP_HEADERS_TOO_LARGE, &buff, 1);
+        goto __err_keep_alive;
     }
 
     struct http_header misc_headers[PHR_HEADER_BUFF_SIZE * 2];
@@ -328,9 +330,10 @@ __parse:
     // Set the method and search for the handler
     req.r_method = (request_method)_get_req_from_str(&method);
     routing_result r = router_get_entry(rout, &req);
+    http_status_code code = r.data.err;
     if (r.st == MCFW_ERR) {
-        send_response_back_host_error(fd, r.data.err, &buff);
-        goto __exit_premature;
+        send_response_back_host_error(fd, code, &buff, 1);
+        goto __err_keep_alive;
     }
 
     // The handler for the request.
@@ -339,15 +342,17 @@ __parse:
     
     req.misc_headers.table = misc_headers;
     req.misc_headers.capacity = PHR_HEADER_BUFF_SIZE * 2;
-    http_status_code code = http_check_core_headers(&req, re);
+    code = http_check_core_headers(&req, re);
     if (code != HTTP_OK) {
-        send_response_back_host_error(fd, code, &buff);
-        goto __exit_premature;
+        send_response_back_host_error(fd, code, &buff, 1);
+        goto __err_keep_alive;
     }
 
 
     int more_data = 0;
     int body_alloced = 0;
+
+    http_stream stream = {0};
 
     // Parse the body
     if (re->r_method >= PAYLOAD_METHODS_IDX) {
@@ -365,8 +370,7 @@ __parse:
                     req.body.len = req.core_headers.payload_len.content_length;
                     break;
                 }
-                http_stream stream = {0};
-                req.body.len = buff.capacity - parse_result;
+                req.body.len = buff.count - parse_result;
                 mlog_info("len: %zu", req.core_headers.payload_len.content_length);
                 stream_inm(
                     &stream, 
@@ -378,7 +382,7 @@ __parse:
                 streaming_result sr = stream_build_full_body(&stream);
                 if (sr.st != MCFW_OK) {
                     VEC_FREE(stream.data.inm);
-                    send_response_back_host_error(fd, sr.data.error_code, &buff);
+                    send_response_back_host_error(fd, sr.data.error_code, &buff, 0);
                     goto __exit_premature;
                 }
                 req.body = SLICE_FROM(sr.data.vec->data, sr.data.vec->count);
@@ -387,8 +391,8 @@ __parse:
                 
 
             default:
-                send_response_back_host_error(fd, HTTP_NOT_IMPLEMENTED, &buff);
-                goto __exit_premature; 
+                send_response_back_host_error(fd, HTTP_NOT_IMPLEMENTED, &buff, 1);
+                goto __err_keep_alive;
         }
     } else {
         // for GET DELETE HEAD => set more data if count is bigger than consumed headers
@@ -400,23 +404,24 @@ __parse:
     }
 
 
+
     if (re->method_fptr == NULL) {
         mlog_error("The handler responsible for route \"%.*s\" if a NULL pointer.", SLICE_FMT(re->route_str));
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff);
+        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, 0);
         goto __exit_premature;
     }
 
     
     // Get the reflected struct for destructing the data.
     RStruct* deser_type = NULL;
-    int needs_deserialization = req_deserializing_lut[re->expect];
+    needs_deserialization = req_deserializing_lut[re->expect];
 
     // Deserializing if its required.
     if (needs_deserialization && re->r_method >= PAYLOAD_METHODS_IDX) {
         http_status_code code = try_deserialize_body(re, c, &req, &deser_type);
         if (code != HTTP_OK) {
-            send_response_back_host_error(fd, code, &buff);
-            goto __exit_premature;
+            send_response_back_host_error(fd, code, &buff, 1);
+            goto __err_keep_alive;
         }
     }
 
@@ -425,16 +430,17 @@ __parse:
     // Call handler.
     http_response* res =  re->method_fptr(&req);
 
-    if (body_alloced) VEC_FREE(req.body);
+    
+    if (body_alloced) free(req.body.data);
 
     // Error while processing the response
     if (!res) { 
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff);
+        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, 0);
         mlog_error("null ptr received from method: %s %.*s", 
             refl_enum_get_label((REnum*)CACHED_ENUM_REQ_KIND, req.r_method), SLICE_FMT(req.path));
         goto __exit;
     } else if (res->signature != HTTP_RES_SIGNATURE) {
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff);
+        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff, 0);
 
         mlog_error("http response received from method: %s %.*s is garbage",
             refl_enum_get_label((REnum*)CACHED_ENUM_REQ_KIND, req.r_method), SLICE_FMT(req.path));
@@ -454,13 +460,15 @@ __parse:
         res->buff = new_buff;
         if (code != HTTP_OK) {
             if (res->flags & HTTP_FLAG_DEALLOC_BODY) VEC_FREE(old_buff);
+            send_response_back_host_error(fd, code, &buff, 1);
             free(res);
-            goto __exit;
+            goto __err_keep_alive;
         }
         if (res->flags & HTTP_FLAG_DEEP_DEALLOC) refl_generic_destructor(ser_type, old_buff.data);
         else if (res->flags & HTTP_FLAG_DEALLOC_BODY) VEC_FREE(old_buff);
         swapped = 1;
     }
+
 
     close_connection = !(req.core_headers.conn_keep_alive && !(res->flags & HTTP_FLAG_CLOSE_CONN));
     // Send handler's response back
@@ -474,9 +482,8 @@ __parse:
     if (!close_connection) {
         if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);
         // more_data flag determines that by the way the body was read, it may have also read part of another request if the client has pipelined
-        // if so, move the surplus data to the begining of the buffer for the next request to be procesed. 
+        // if so, move the surplus data to the begining of the buffer for the next request to be procesed.
         if (more_data) {
-            mlog_warn("pipel");
             memmove(buff.data, pipeline_trail.data, pipeline_trail.len);
             buff.count = pipeline_trail.len;
             goto __parse;
@@ -493,6 +500,15 @@ __exit_premature:
         version_drop_ctx(c, 1); }
     TOTAL_CLIENTS--;
     shutdown(fd, SHUT_RDWR);
+    task_return_void();
+
+__err_keep_alive:
+    if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);
+    pipeline_trail = SLICE_VIEW(buff.data, parse_result, buff.capacity);
+    memmove(buff.data, pipeline_trail.data, pipeline_trail.len);
+    buff.count = pipeline_trail.len;
+    goto __parse;
+
     end_return_void();
 }
 
@@ -525,6 +541,7 @@ async(accept_loop, tcp_listener_t* t) {
     }
     oneshot_drop_rx((oneshot_rx_t)graceful_shutdown);
     oneshot_assert_closed(graceful_shutdown);
+    close(t->fd);
     end_return_void();
 }
 /*

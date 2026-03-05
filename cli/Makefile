@@ -4,7 +4,7 @@ TARGET_CLI  = mcfw 		 	# CLI
 INCLUDE = -I../dependencies
 
 CC = gcc
-CFLAGS_CLI   = -Wall -Wextra -Werror -std=c17 -m64 -MMD -MP -g $(INCLUDE)
+CFLAGS_CLI   = -Wall -Wextra -Werror -std=c17 -m64 -MMD -MP -g $(INCLUDE) -O2 -Wno-maybe-uninitialized
 
 LIBS = -L../dependencies -l:crefl/libcrefl.a
 
