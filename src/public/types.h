@@ -29,8 +29,8 @@ typedef struct {
     (u8_vec){.data = (uint8_t*)__p, .count = _size, .capacity = _size };\
 })
 
-#define VEC_FROM(_buffer, _size, _capacity) ({\
-    (u8_vec){.data = (uint8_t*)_buffer, .count = _size, .capacity = _capacity };\
+#define VEC_FROM(_buffer, _count, _capacity) ({\
+    (u8_vec){.data = (uint8_t*)_buffer, .count = _count, .capacity = _capacity };\
 })
 
 #define VEC_NEW(_cap) ({\

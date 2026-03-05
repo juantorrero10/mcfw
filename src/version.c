@@ -151,7 +151,7 @@ int version_drop_ctx(app_context*  a, int try_drop_scope) {
 
 
     router_destroy(&a->router);
-    //dlclose(a->dl_handle);
+    dlclose(a->dl_handle);
     if (a->crefl_data->c_ctx_ref_count == 0 && try_drop_scope) {
         _drop_scope(a->crefl_data);
         a->crefl_data = NULL;

@@ -43,6 +43,13 @@ REFLECT(struct) {
 
 #define MAX_HEADER_SIZE  8192     // 8kb
 #define MAX_BODY_SIZE 1024 * 1024 // 1 Mb
+
+#define TOTAL_HEADER_TIMEOUT 5000
+#define RECV_HEADER_TIMEOUT 1500
+
+#define TOTAL_BODY_TIMEOUT 30000
+#define RECV_BODY_TIMEOUT 5000
+
 // Needs to be a power of 2
 #define PHR_HEADER_BUFF_SIZE 64
 

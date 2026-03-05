@@ -21,5 +21,14 @@ typedef struct {
 } routing_result;
 
 
+typedef struct {
+    mcfw_status st;
+    union {
+        http_status_code error_code;
+        u8_vec* vec;
+    } data;
+} streaming_result;
+
+
 
 #endif // PRIVATE_TYPES_H_

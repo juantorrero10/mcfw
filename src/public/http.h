@@ -19,6 +19,7 @@ REFLECT(enum) {
     HTTP_LOCKED = 423,
     HTTP_HEADERS_TOO_LARGE =  431,
     HTTP_INTERNAL_SERVER_ERROR = 500,
+    HTTP_NOT_IMPLEMENTED = 501,
     HTTP_SERVICE_UNAVAILABLE = 503
 } http_status_code;
 
@@ -60,6 +61,13 @@ typedef enum {
     ENCODING_BR
 } http_compression;
 
+typedef enum {
+    TRANSFER_NOT_SPECIFIED = -1,
+    TRANSFER_INMEDIATE, // Content-Length: ----
+    TRANSFER_CHUNKED,   // Transfer-Enconding: chunked
+    TRANSFER_FILE       // Internal state
+} transmission_encoding;
+
 struct http_header {
     u8_slice header_name;
     u8_slice val;
@@ -75,7 +83,11 @@ struct http_core_headers {
     bool conn_keep_alive;
     http_content_type type;
     http_content_type content_type;
-    size_t content_length;
+    transmission_encoding tx_encoding;
+    union {
+        size_t content_length;
+        size_t max_body_length;
+    } payload_len;
     u8_slice host;
     u8_slice accept;
 };

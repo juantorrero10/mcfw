@@ -117,14 +117,17 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
     }
 
     // Content-Length
+    req->core_headers.tx_encoding = TRANSFER_NOT_SPECIFIED;
     u8_slice content_length = http_get_header_val(SLICE_CSTR_LIT("Content-Length"), &req->misc_headers);
-    req->core_headers.content_length = 0;
+    req->core_headers.payload_len.content_length = 0;
 
     if (content_length.data) {
         char num_buff[32];
+        req->core_headers.tx_encoding = TRANSFER_INMEDIATE;
         memcpy(num_buff, content_length.data, MIN(content_length.len, 31));
+        num_buff[31] = '\0'; 
         errno = 0; 
-        req->core_headers.content_length = strtoull(num_buff, NULL, 10);
+        req->core_headers.payload_len.content_length = strtoull(num_buff, NULL, 10);
         if (errno != 0) {
             return HTTP_BAD_REQUEST;
         }
@@ -137,10 +140,10 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
     // Check Content-Length val and Content-type
     // for POST PUT PATCH and OPTIONS
     if (req->r_method >= PAYLOAD_METHODS_IDX) {
-        if (!content_length.data) return HTTP_LENGTH_REQUIRED;
-        if (req->core_headers.content_length > MAX_BODY_SIZE) return HTTP_CONTENT_TOO_LARGE;
+        if (req->core_headers.tx_encoding == TRANSFER_NOT_SPECIFIED) return HTTP_LENGTH_REQUIRED;
+        if (req->core_headers.payload_len.content_length > MAX_BODY_SIZE) return HTTP_CONTENT_TOO_LARGE;
 
-        req->body.len = req->core_headers.content_length;
+        req->body.len = req->core_headers.payload_len.content_length;
 
         u8_slice content_type = http_get_header_val(SLICE_CSTR_LIT("Content-Type"), &req->misc_headers);
         if (content_type.data) {
@@ -155,7 +158,8 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
     // for GET HEAD DELETE 
     else {
         // Don't allow sending bodies in non payload methods.
-        if (req->core_headers.content_length > 0 || req->body.data != NULL) {
+        if (req->core_headers.tx_encoding == TRANSFER_CHUNKED ||
+             (content_length.data && req->core_headers.payload_len.content_length > 0)) {
             return HTTP_BAD_REQUEST;
         }
     }

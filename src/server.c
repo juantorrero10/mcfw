@@ -1,11 +1,13 @@
 #include <string.h>
 #include <errno.h>
+#include <assert.h>
+#include <sys/time.h>
+#include <time.h>
 
 #include <asclib/core.h>
 #include <asclib/net/tcp.h>
 #include <asclib/sync.h>
 #include <asclib/cleanup.h>
-#include <time.h>
 
 #include <crefl/core.h>
 #include <crefl/scope.h>
@@ -18,6 +20,7 @@
 #include "public/http.h"
 #include "public/resources.h"
 
+#include "private/stream.h"
 #include "private/http.h"
 #include "private/router.h"
 #include "private/version.h"
@@ -45,7 +48,7 @@ static inline char* get_gmt_date(char* write_at, size_t len) {
     return write_at;
 }
 
-#define SEND_TIMEOUT 200
+#define SEND_TIMEOUT 2000
 #define STRIP_HTTP_PREFIX(_str_expr) (_str_expr + 5)
 
 /**
@@ -61,6 +64,7 @@ void send_response_back_host_error(int fd, int code, u8_vec* buffer) {
         "HTTP/1.1 %03d %s\r\n"
         "Server: "SERVER_HEADER_VAL"\r\n"
         "Connection: close\r\n"
+        "Content-Length: 0\r\n"
         "\r\n"
     ;
     buffer->count = snprintf((char*)buffer->data, buffer->capacity, fmt_template, code, 
@@ -75,7 +79,10 @@ void send_response_back_host_error(int fd, int code, u8_vec* buffer) {
     }
 }
 
-void send_response_back(int fd, u8_vec* buffer, http_response* res, int keep_alive) {
+void send_response_back(int fd, http_response* res, int keep_alive) {
+
+    uint8_t __r[MAX_HEADER_SIZE];
+    u8_vec buffer = VEC_FROM(__r, 0, sizeof(__r));
     // Get content type header
     char* ctype_str = (res->type > 0 && res->type < CONTENT_TYPE_N_MEMB)? str_response_type_lut[res->type] : NULL;
     if (ctype_str == NULL) ctype_str = "application/octet-stream";
@@ -85,7 +92,6 @@ void send_response_back(int fd, u8_vec* buffer, http_response* res, int keep_ali
     if (!str_status) str_status = "OK"; // Fallback case.
 
     char date_buff[32];
-
 
     // TODO: vec push
 
@@ -99,20 +105,20 @@ void send_response_back(int fd, u8_vec* buffer, http_response* res, int keep_ali
         "Content-Length: %zu\r\n"
         "\r\n"
         ;
-    buffer->count = snprintf((char*)buffer->data, buffer->capacity, fmt_template, 
+    buffer.count = snprintf((char*)buffer.data, buffer.capacity, fmt_template, 
         res->code, STRIP_HTTP_PREFIX(str_status), get_gmt_date(date_buff, 32), (keep_alive)? "keep-alive" : "close",
         ctype_str, res->buff.count);
 
     // If somehow headers get too heavy and exceed HEADER_MAX_SIZE - 2 (trailing \r\n)
-    if (buffer->count >= buffer->capacity - 2) {
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, buffer);
+    if (buffer.count >= buffer.capacity - 2) {
+        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buffer);
         return;
     }
 
 
     struct iovec vecs[2] = {
         // Headers
-        {.iov_base = buffer->data, .iov_len = buffer->count},
+        {.iov_base = buffer.data, .iov_len = buffer.count},
         // Body
         {.iov_base = res->buff.data, .iov_len = res->buff.count}
     };
@@ -123,7 +129,6 @@ void send_response_back(int fd, u8_vec* buffer, http_response* res, int keep_ali
     };
 
     ssize_t sz = io_timeout(ssize_t, asc_sendmsg(fd, &full_msg), SEND_TIMEOUT, {
-        mlog_warn("<%d> timed out", fd);
         return;
     });
     if (sz < 0) {
@@ -145,11 +150,9 @@ http_status_code try_serialize_response(const app_context* c, http_response* res
     switch (res->type)
     {
     case CONTENT_JSON:
-        out_buff->data = serialize_json(s, res->buff.data, 1);
-        /**
-         * @todo add out_size to crefl
-         */
-        out_buff->count = out_buff->capacity = strlen((char*)out_buff->data);
+        uint8_t* out;
+        out_buff->count = serialize_json(s, res->buff.data, (void**)&out, 1);
+        out_buff->data = out;
         if (out_rs) *out_rs = s;
         return HTTP_OK;
     
@@ -218,7 +221,7 @@ static int _get_req_from_str(u8_slice* method) {
  */
 async(client_handler, int fd) {
     detach;
-    int fd = clean_on_drop(arg(fd));
+    int fd = arg(fd);
     // Global resources
     TOTAL_CLIENTS++;
 
@@ -237,19 +240,28 @@ async(client_handler, int fd) {
     app_context* c = version_get_ctx(version);
     if (!c) { 
         send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff);
-        task_return_void();
+        goto __exit_premature;
     }
     // Increase reference count the app ctx.
     c->ref_count++;
     router* rout = &c->router;
 
-    ssize_t sz = 0;
-
 __recv_begin:
-    
 
-    sz = io_timeout(ssize_t, asc_recv(fd, buff.data, buff.capacity), 3000, {
-        send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, &buff);
+    buff.count = 0;
+
+    ssize_t sz = 0;
+    time_t curr_time = time(NULL);
+
+    // pipelining
+    u8_slice pipeline_trail = {0};
+
+
+__recv_att:
+
+
+    sz = io_timeout(ssize_t, asc_recv(fd, buff.data + buff.count, buff.capacity - buff.count), RECV_HEADER_TIMEOUT, {
+        if (buff.count > 0) send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, &buff);
         goto __exit_premature;
     });
     if (sz < 0) {
@@ -259,13 +271,24 @@ __recv_begin:
         send_response_back_host_error(fd, HTTP_BAD_REQUEST, &buff);
         goto __exit_premature;
     }
+    buff.count += sz;
 
+    // Check for total timeout
+    if (time(NULL) - curr_time > TOTAL_HEADER_TIMEOUT) {
+        send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, &buff);
+        goto __exit_premature;
+    }
+
+__parse:
+
+    //mlog_info("BUFF HAS:\n%.*s", VEC_FMT(buff));
 
     // Build request struct
     http_request req = (http_request){0}; 
     req.misc_headers.n_headers = PHR_HEADER_BUFF_SIZE;
-    buff.count = sz;
     u8_slice method = {0};
+
+    memset(phr_headers, 0, sizeof(phr_headers));
 
     // ret -> bytes consumed or error.
     int parse_result = phr_parse_request(
@@ -281,29 +304,19 @@ __recv_begin:
         0);
 
 
+    // Bad headers
     if (parse_result == -1) {
+        mlog_info("bad buffer: %.*s", VEC_FMT(buff));
         send_response_back_host_error(fd, HTTP_BAD_REQUEST, &buff);
         goto __exit_premature;
     }
 
 
+    // Incomplete headers
     if (parse_result == -2) {
+        if (buff.count < buff.capacity) goto __recv_att;
         send_response_back_host_error(fd, HTTP_HEADERS_TOO_LARGE, &buff);
         goto __exit_premature;
-    }
-
-    /**
-     * TEMP until correctly handling the body
-     */
-    if ((size_t)sz == buff.capacity) {
-        send_response_back_host_error(fd, HTTP_CONTENT_TOO_LARGE, &buff);
-        goto __exit_premature;
-    } 
-
-    // Set the str view of the body if there is one
-    if ((size_t)parse_result < buff.count) {
-        req.body.data = buff.data + (size_t)parse_result;
-        // Set the len later.
     }
 
     struct http_header misc_headers[PHR_HEADER_BUFF_SIZE * 2];
@@ -333,6 +346,60 @@ __recv_begin:
     }
 
 
+    int more_data = 0;
+    int body_alloced = 0;
+
+    // Parse the body
+    if (re->r_method >= PAYLOAD_METHODS_IDX) {
+        switch(req.core_headers.tx_encoding) {
+            case TRANSFER_INMEDIATE:
+                req.body.data = buff.data + parse_result;
+
+                // Inmediate -> Clients specifies length with Content-Length
+                // If content fits withing inital read and we have read more => set a flag for later.
+                if ((req.core_headers.payload_len.content_length <= buff.capacity - parse_result)) {
+                    if (buff.count > parse_result + req.core_headers.payload_len.content_length) {
+                        more_data = 1;
+                        pipeline_trail = SLICE_VIEW(buff.data, parse_result + req.core_headers.payload_len.content_length, buff.count);
+                    }
+                    req.body.len = req.core_headers.payload_len.content_length;
+                    break;
+                }
+                http_stream stream = {0};
+                req.body.len = buff.capacity - parse_result;
+                mlog_info("len: %zu", req.core_headers.payload_len.content_length);
+                stream_inm(
+                    &stream, 
+                    req.core_headers.payload_len.content_length, 
+                    &req.body, 
+                    fd
+                );
+                // TODO: allow streaming.
+                streaming_result sr = stream_build_full_body(&stream);
+                if (sr.st != MCFW_OK) {
+                    VEC_FREE(stream.data.inm);
+                    send_response_back_host_error(fd, sr.data.error_code, &buff);
+                    goto __exit_premature;
+                }
+                req.body = SLICE_FROM(sr.data.vec->data, sr.data.vec->count);
+                body_alloced = 1;
+                break;
+                
+
+            default:
+                send_response_back_host_error(fd, HTTP_NOT_IMPLEMENTED, &buff);
+                goto __exit_premature; 
+        }
+    } else {
+        // for GET DELETE HEAD => set more data if count is bigger than consumed headers
+        if(buff.count > (size_t)parse_result) {
+            more_data = 1;
+            pipeline_trail = SLICE_VIEW(buff.data, parse_result, buff.count); 
+        }
+    
+    }
+
+
     if (re->method_fptr == NULL) {
         mlog_error("The handler responsible for route \"%.*s\" if a NULL pointer.", SLICE_FMT(re->route_str));
         send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, &buff);
@@ -357,7 +424,8 @@ __recv_begin:
     if (TOTAL_CLIENTS > 1) yield;
     // Call handler.
     http_response* res =  re->method_fptr(&req);
-    
+
+    if (body_alloced) VEC_FREE(req.body);
 
     // Error while processing the response
     if (!res) { 
@@ -396,7 +464,7 @@ __recv_begin:
 
     close_connection = !(req.core_headers.conn_keep_alive && !(res->flags & HTTP_FLAG_CLOSE_CONN));
     // Send handler's response back
-    send_response_back(fd, &buff, res, !close_connection);
+    send_response_back(fd, res, !close_connection);
 
     // Freeings
     if (swapped || res->flags & HTTP_FLAG_DEALLOC_BODY) VEC_FREE(res->buff);
@@ -405,6 +473,14 @@ __recv_begin:
     // Get back the begining if we are not closing the connection
     if (!close_connection) {
         if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);
+        // more_data flag determines that by the way the body was read, it may have also read part of another request if the client has pipelined
+        // if so, move the surplus data to the begining of the buffer for the next request to be procesed. 
+        if (more_data) {
+            mlog_warn("pipel");
+            memmove(buff.data, pipeline_trail.data, pipeline_trail.len);
+            buff.count = pipeline_trail.len;
+            goto __parse;
+        }
         goto __recv_begin; 
     }
 
@@ -416,6 +492,7 @@ __exit_premature:
     if (c->ref_count == 0 && APP_CURR_VERSION != version) {
         version_drop_ctx(c, 1); }
     TOTAL_CLIENTS--;
+    shutdown(fd, SHUT_RDWR);
     end_return_void();
 }
 
@@ -443,7 +520,7 @@ async(accept_loop, tcp_listener_t* t) {
             }
         );
         if (client_fd >= 0) {
-            task_spawn(client_handler, .fd = client_fd);
+            task_spawn_ex(client_handler, 10, .fd = client_fd);
         }
     }
     oneshot_drop_rx((oneshot_rx_t)graceful_shutdown);
