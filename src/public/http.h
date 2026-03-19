@@ -5,7 +5,10 @@
 
 
 REFLECT(enum) {
+    HTTP_CONTINUE = 100,
     HTTP_OK = 200,
+    HTTP_PARTIAL_CONTENT = 206,
+    HTTP_NOT_MODIFIED = 304,
     HTTP_BAD_REQUEST = 400,
     HTTP_FORBIDDEN = 403,
     HTTP_NOT_FOUND = 404,
@@ -24,7 +27,7 @@ REFLECT(enum) {
 } http_status_code;
 
 // Number of (valid) enum members.
-#define CONTENT_TYPE_N_MEMB 8
+#define CONTENT_TYPE_N_MEMB 16
 
 typedef enum {
     // Value when the MIME media type isn't represented in this enum.
@@ -32,14 +35,30 @@ typedef enum {
     CONTENT_OTHER = -2,
     // When especified header is missing.
     CONTENT_NOT_SPECIFIED = -1,
+
+    // text/...
     CONTENT_TEXT,
     CONTENT_HTML,
     CONTENT_JAVASCRIPT,
+    CONTENT_EVENT_STREAM,
+    CONTENT_CSS,
+
+    // application/..
+    CONTENT_JSON,
+    CONTENT_WASM,
+    CONTENT_XML,
+    CONTENT_BINARY,
+    CONTENT_XHTML,
+    CONTENT_PDF,
+
+    // image/...
+    CONTENT_SVG,
     CONTENT_PNG,
     CONTENT_JPEG,
     CONTENT_ICO,
-    CONTENT_JSON,
-    CONTENT_BINARY
+
+    // font
+    CONTENT_WOFF2
 } http_content_type;
 
 #define PAYLOAD_METHODS_IDX 3
@@ -113,17 +132,17 @@ typedef struct __MCFW_HTTP_REQUEST__ {
 
 typedef struct __MCFW_HTTP_RESPONSE__ http_response;
 
-http_response* http_response_create(http_status_code c, http_content_type res_type, u8_slice mime_type, char* __type, u8_vec buff);
+http_response* http_response_create(http_status_code c, http_content_type res_type, u8_slice mime_type, char* __type, u8_vec buff, transmission_encoding te);
 
 
-#define RES(_code, _content_type, _u8_vec) http_response_create((_code), (_content_type), (u8_slice){0}, NULL, (_u8_vec))
-#define RES_OK(_content_type, _u8_vec) http_response_create(HTTP_OK, (_content_type), (u8_slice){0}, NULL, (_u8_vec))
-#define RES_EMPTY(_code) http_response_create((_code), CONTENT_NOT_SPECIFIED, (u8_slice){0}, NULL, (u8_vec){0})
-#define RES_OTHER(_code, _mime_type_string, _u8_vec) http_response_create((_code), CONTENT_OTHER, SLICE_CSTR(_mime_type_string), NULL, (_u8_vec))
+#define RES(_code, _content_type, _u8_vec) http_response_create((_code), (_content_type), (u8_slice){0}, NULL, (_u8_vec), TRANSFER_INMEDIATE)
+#define RES_OK(_content_type, _u8_vec) http_response_create(HTTP_OK, (_content_type), (u8_slice){0}, NULL, (_u8_vec), TRANSFER_INMEDIATE)
+#define RES_EMPTY(_code) http_response_create((_code), CONTENT_NOT_SPECIFIED, (u8_slice){0}, NULL, (u8_vec){0}, TRANSFER_INMEDIATE)
+#define RES_OTHER(_code, _mime_type_string, _u8_vec) http_response_create((_code), CONTENT_OTHER, SLICE_CSTR(_mime_type_string), NULL, (_u8_vec), TRANSFER_INMEDIATE)
 
 #define RES_SERIALIZE(_code, _content_type, _type, _u8_vec) ({\
     http_response_create(\
-        _code, CONTENT_JSON, (u8_slice){0}, #_type, (_u8_vec));\
+        _code, CONTENT_JSON, (u8_slice){0}, #_type, (_u8_vec), TRANSFER_INMEDIATE);\
 })
 
 #define RES_SERIALIZE_OK(_content_type, _type, _u8_vec) RES_SERIALIZE(HTTP_OK, _content_type, _type, _u8_vec)

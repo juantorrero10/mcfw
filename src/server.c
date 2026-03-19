@@ -1,4 +1,5 @@
 #include <string.h>
+#include <strings.h>
 #include <errno.h>
 #include <assert.h>
 #include <sys/time.h>
@@ -20,7 +21,7 @@
 #include "public/http.h"
 #include "public/resources.h"
 
-#include "private/stream.h"
+#include "private/comm.h"
 #include "private/http.h"
 #include "private/router.h"
 #include "private/version.h"
@@ -83,12 +84,12 @@ void send_response_back_host_error(int fd, int code, int keep_alive) {
     }
 }
 
-void send_response_back(int fd, http_response* res, int keep_alive) {
+void send_response_back(http_response* res, int keep_alive) {
 
     uint8_t __r[MAX_HEADER_SIZE];
     u8_vec buffer = VEC_FROM(__r, 0, sizeof(__r));
     // Get content type header
-    char* ctype_str = (res->type > 0 && res->type < CONTENT_TYPE_N_MEMB)? str_response_type_lut[res->type] : NULL;
+    char* ctype_str = (res->type > 0 && res->type < CONTENT_TYPE_N_MEMB)? (char*)MIME_LUT[res->type].full_str : NULL;
     if (ctype_str == NULL) ctype_str = "application/octet-stream";
 
     // Get string version of the error code.
@@ -111,20 +112,20 @@ void send_response_back(int fd, http_response* res, int keep_alive) {
         ;
     buffer.count = snprintf((char*)buffer.data, buffer.capacity, fmt_template, 
         res->code, STRIP_HTTP_PREFIX(str_status), get_gmt_date(date_buff, 32), (keep_alive)? "keep-alive" : "close",
-        ctype_str, res->buff.count);
+        ctype_str, res->stream.total_size);
 
     // If somehow headers get too heavy and exceed HEADER_MAX_SIZE - 2 (trailing \r\n)
     if (buffer.count >= buffer.capacity - 2) {
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, 0);
+        res_template_host_error(res->stream.client_fd, HTTP_INTERNAL_SERVER_ERROR, 0);
         return;
     }
 
-
+if (res->stream.encoding == TRANSFER_INMEDIATE) {
     struct iovec vecs[2] = {
         // Headers
         {.iov_base = buffer.data, .iov_len = buffer.count},
         // Body
-        {.iov_base = res->buff.data, .iov_len = res->buff.count}
+        {.iov_base = res->stream.data.inm.data, .iov_len = res->stream.data.inm.count}
     };
 
 
@@ -132,12 +133,22 @@ void send_response_back(int fd, http_response* res, int keep_alive) {
         .msg_iov = vecs, .msg_iovlen = 2
     };
 
-    ssize_t sz = io_timeout(ssize_t, asc_sendmsg(fd, &full_msg), SEND_TIMEOUT, {
+    ssize_t sz = io_timeout(ssize_t, asc_sendmsg(res->stream.client_fd, &full_msg), SEND_TIMEOUT, {
         return;
     });
     if (sz < 0) {
         mlog_warn("couldn't send to client: %s", strerror(errno));
     }
+} else {
+    ssize_t sz = io_timeout(ssize_t, asc_send(res->stream.client_fd, buffer.data, buffer.count), SEND_TIMEOUT, {
+        return;
+    });
+    if (sz < 0) {
+        mlog_warn("couldn't send headers to client: %s", strerror(errno));
+    }
+    stream_push_complete(&res->stream);
+}
+    
 }
 
 http_status_code try_serialize_response(const app_context* c, http_response* res, u8_vec* out_buff, RStruct** out_rs) {
@@ -147,7 +158,7 @@ http_status_code try_serialize_response(const app_context* c, http_response* res
         mlog_error("Couldn't find reflected type: %s for serialization.", res->serialize_typename);
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-    if (!res->buff.data) {
+    if (!res->stream.data.inm.data) {
         mlog_error("Tried to serialize a null pointer.");
         return HTTP_INTERNAL_SERVER_ERROR;
     }
@@ -155,7 +166,7 @@ http_status_code try_serialize_response(const app_context* c, http_response* res
     {
     case CONTENT_JSON:
         uint8_t* out;
-        out_buff->count = serialize_json(s, res->buff.data, (void**)&out, 1);
+        out_buff->count = serialize_json(s, res->stream.data.inm.data, (void**)&out, 1);
         out_buff->data = out;
         if (out_rs) *out_rs = s;
         return HTTP_OK;
@@ -226,7 +237,6 @@ static int _get_req_from_str(u8_slice* method) {
 async(client_handler, int fd) {
     detach;
     int fd = clean_on_drop(arg(fd));
-    mlog_info("(+): %d", fd);
     // Global resources
     TOTAL_CLIENTS++;
 
@@ -346,8 +356,8 @@ __parse:
     req.misc_headers.capacity = PHR_HEADER_BUFF_SIZE * 2;
     code = http_check_core_headers(&req, re);
     if (code != HTTP_OK) {
-        send_response_back_host_error(fd, code, 1);
-        goto __err_keep_alive;
+        send_response_back_host_error(fd, code, 0);
+        goto __exit_premature;
     }
 
 
@@ -358,6 +368,17 @@ __parse:
 
     // Parse the body
     if (re->r_method >= PAYLOAD_METHODS_IDX) {
+
+        // Check for Expect: 100-continue
+        u8_slice expect = http_get_header_val(SLICE_CSTR_LIT("Expect"), &req.misc_headers);
+        if (
+            expect.data 
+            && expect.len == sizeof("100-continue") - 1 
+            && !strncasecmp((char*)expect.data, "100-continue", sizeof("100-continue") - 1)) 
+        {
+            send_response_back_host_error(fd, HTTP_CONTINUE, 1);
+        }
+
         switch(req.core_headers.tx_encoding) {
             case TRANSFER_INMEDIATE:
                 req.body.data = buff.data + parse_result;
@@ -381,7 +402,7 @@ __parse:
                     fd
                 );
                 // TODO: allow streaming.
-                streaming_result sr = stream_build_full_body(&stream);
+                streaming_result sr = stream_pull_complete(&stream);
                 if (sr.st != MCFW_OK) {
                     VEC_FREE(stream.data.inm);
                     send_response_back_host_error(fd, sr.data.error_code, 0);
@@ -400,23 +421,15 @@ __parse:
         // for GET DELETE HEAD => set more data if count is bigger than consumed headers
         if(buff.count > (size_t)parse_result) {
             more_data = 1;
-            pipeline_trail = SLICE_VIEW(buff.data, parse_result, buff.count); 
+            pipeline_trail = SLICE_VIEW(buff.data, parse_result, buff.count);
         }
     
-    }
-
-
-
-    if (re->method_fptr == NULL) {
-        mlog_error("The handler responsible for route \"%.*s\" if a NULL pointer.", SLICE_FMT(re->route_str));
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, 0);
-        goto __exit_premature;
     }
 
     
     // Get the reflected struct for destructing the data.
     RStruct* deser_type = NULL;
-    needs_deserialization = req_deserializing_lut[re->expect];
+    needs_deserialization = MIME_LUT[re->expect].flags & MIME_FLAG_SERDE;
 
     // Deserializing if its required.
     if (needs_deserialization && re->r_method >= PAYLOAD_METHODS_IDX) {
@@ -428,9 +441,33 @@ __parse:
     }
 
 
+    // Load balance a bit.
     if (TOTAL_CLIENTS > 1) yield;
+
+    http_response* res = NULL;
+
     // Call handler.
-    http_response* res =  re->method_fptr(&req);
+    switch(re->respond_with) {
+    case ROUTER_FUNC:
+        if (re->handler.method_fptr == NULL) {
+            mlog_error("The handler responsible for route \"%.*s\" if a NULL pointer.", SLICE_FMT(re->route_str));
+            send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, 0);
+            goto __exit_premature;
+        }
+        res =  re->handler.method_fptr(&req);
+        break;
+    case ROUTER_FILE:
+        if (re->handler.file_name.data == NULL) {
+            mlog_error("The handler responsible for route \"%.*s\" if a NULL pointer.", SLICE_FMT(re->route_str));
+            send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, 0);
+            goto __exit_premature;
+        }
+        res = static_file_handler(&req, &re->handler.file_name, re->expect);
+        break;
+    default:
+        send_response_back_host_error(fd, HTTP_NOT_IMPLEMENTED, 0);
+        goto __exit_premature;
+    }
 
     
     if (body_alloced) free(req.body.data);
@@ -449,6 +486,15 @@ __parse:
 
         goto __exit;
     }
+
+    res->stream.client_fd = fd;
+
+    close_connection = !(req.core_headers.conn_keep_alive && !(res->flags & HTTP_FLAG_CLOSE_CONN));
+
+    if (re->respond_with == ROUTER_FILE) {
+        send_response_back(res, !close_connection);
+        goto __loop;
+    }
     
     RStruct* ser_type = NULL;
     int swapped = 0;
@@ -457,12 +503,13 @@ __parse:
     if (res->serialize) {
         // Swap buffers
         u8_vec new_buff = VEC_NULL;
-        u8_vec old_buff = res->buff;
+        u8_vec old_buff = res->stream.data.inm;
         http_status_code code = try_serialize_response(c, res, &new_buff, &ser_type);
-        res->buff = new_buff;
+        res->stream.data.inm = new_buff;
+        res->stream.total_size = new_buff.count;
         if (code != HTTP_OK) {
             if (res->flags & HTTP_FLAG_DEALLOC_BODY) VEC_FREE(old_buff);
-            send_response_back_host_error(fd, code, 1);
+            res_template_host_error(fd, code, 1);
             free(res);
             goto __err_keep_alive;
         }
@@ -472,14 +519,15 @@ __parse:
     }
 
 
-    close_connection = !(req.core_headers.conn_keep_alive && !(res->flags & HTTP_FLAG_CLOSE_CONN));
+    
     // Send handler's response back
-    send_response_back(fd, res, !close_connection);
+    send_response_back(res, !close_connection);
 
     // Freeings
-    if (swapped || res->flags & HTTP_FLAG_DEALLOC_BODY) VEC_FREE(res->buff);
+    if (swapped || res->flags & HTTP_FLAG_DEALLOC_BODY) VEC_FREE(res->stream.data.inm);
+    
+__loop:
     free(res);
-
     // Get back the begining if we are not closing the connection
     if (!close_connection) {
         if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);

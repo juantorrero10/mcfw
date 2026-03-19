@@ -5,6 +5,8 @@
 #include "../public/types.h"
 #include "../public/router.h"
 
+#include "comm.h"
+
 
 #define HTTP_RES_SIGNATURE 0x52455350 // "RESP"
 
@@ -20,7 +22,7 @@ typedef struct __MCFW_HTTP_RESPONSE__ {
     bool serialize;
     char* serialize_typename;
 
-    u8_vec buff;
+    http_stream stream;
 } http_response;
 
 void http_create_misc_headers_hashtable(struct phr_header* headers, struct http_header* out_headers, size_t buff_size);

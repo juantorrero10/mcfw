@@ -33,6 +33,10 @@ typedef struct {
     (u8_vec){.data = (uint8_t*)_buffer, .count = _count, .capacity = _capacity };\
 })
 
+#define VEC_FROM_SLICE(_slice) ({\
+    (u8_vec){.data = _slice.data, .count = _slice.len, .capacity = _slice.len};\
+})
+
 #define VEC_NEW(_cap) ({\
     (u8_vec){.data = (uint8_t*)malloc(_cap), .count = 0, .capacity = _cap };\
 })

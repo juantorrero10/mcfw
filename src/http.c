@@ -10,32 +10,13 @@
 #include "public/http.h"
 #include "private/types.h"
 #include "private/http.h"
+#include "private/comm.h"
 #include "private/log.h"
 #include "private/glob.h"
 #include "private/router.h"
 
 #define MIN(a, b) ((a) < (b))? (a) : (b)
 
-// Feels overkill but in the future way may have more formats
-const int req_deserializing_lut[CONTENT_TYPE_N_MEMB] = {
-    [CONTENT_JSON] = 1,
-};
-
-const int req_serializing_lut[CONTENT_TYPE_N_MEMB] = {
-    [CONTENT_JSON] = 1,
-};
-
-
-char* str_response_type_lut[CONTENT_TYPE_N_MEMB] = {
-    [CONTENT_HTML]       = "text/html",
-    [CONTENT_TEXT]       = "text/plain",
-    [CONTENT_JAVASCRIPT] = "text/javascript",
-    [CONTENT_JSON]       = "application/json",
-    [CONTENT_BINARY]     = "application/octet-stream",
-    [CONTENT_ICO]        = "image/vnd.microsoft.icon",
-    [CONTENT_JPEG]       = "image/jpeg",
-    [CONTENT_PNG]        = "image/png"
-};
 
 static inline uint32_t dbj2_hash(u8_slice* str)
 {
@@ -90,11 +71,13 @@ void http_create_misc_headers_hashtable(struct phr_header* headers, struct http_
 }
 
 /**
- * Generated str to http_content_type enum conversion though gperf. See src/gperf/str_to_content_type.c  
+ * Generated str to http_content_type enum conversion though gperf. See src/gperf/mime_lookup.c  
  */
-struct mime_type { char* name; http_content_type type; };
-struct mime_type *
-str_to_content_type (register const char *str, register size_t len);
+struct mime_str_map { const char *name; int id; };
+const struct mime_str_map*
+mime_str_lookup (
+     register const char *str,
+     register size_t len);
 
 http_status_code http_check_core_headers(http_request* restrict req, router_entry* restrict re) {
     // Connection
@@ -147,8 +130,8 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
 
         u8_slice content_type = http_get_header_val(SLICE_CSTR_LIT("Content-Type"), &req->misc_headers);
         if (content_type.data) {
-            struct mime_type* m = str_to_content_type((char*)content_type.data, content_type.len);
-            req->core_headers.content_type = m? m->type : CONTENT_OTHER;
+            const struct mime_str_map* m = mime_str_lookup((char*)content_type.data, content_type.len);
+            req->core_headers.content_type = m? (http_content_type)m->id : CONTENT_OTHER;
         }
         // Validate type
         if (re->expect != CONTENT_NOT_SPECIFIED && re->expect != req->core_headers.content_type) {
@@ -170,16 +153,27 @@ http_status_code http_check_core_headers(http_request* restrict req, router_entr
 }
 
 
-http_response* http_response_create(http_status_code c, http_content_type res_type, u8_slice mime_type, char* __type, u8_vec buff) {
+http_response* http_response_create(http_status_code c, http_content_type res_type, u8_slice mime_type, char* __type, u8_vec buff, transmission_encoding te) {
     http_response* r = malloc(sizeof(http_response));
     *r = (http_response){0};
     r->signature = HTTP_RES_SIGNATURE;
     r->flags = HTTP_FLAG_TRANSFER_INMEDIATE;
-    r->buff = buff;
+    switch(te) {
+        case TRANSFER_INMEDIATE:
+            stream_inm(&r->stream, buff.count, &(u8_slice){0}, -1);
+            r->stream.data.inm = buff;
+            break;
+        case TRANSFER_FILE:
+            // The streams gets created manually
+            break;
+        default:
+            mlog_warn("Unsuported transfer encoding");
+            r->stream = (http_stream){0};
+    }
     r->code = c;
     r->type = res_type;
     if (mime_type.data == NULL) {
-        r->type_string.data = (uint8_t*)((res_type > 0 && res_type < CONTENT_TYPE_N_MEMB)? str_response_type_lut[res_type] : NULL);
+        r->type_string.data = (uint8_t*)((res_type > 0 && res_type < CONTENT_TYPE_N_MEMB)? MIME_LUT[res_type].full_str : NULL);
         if (r->type_string.data != NULL) r->type_string.len = strlen((char*)r->type_string.data);
     }
     else r->type_string = mime_type;
@@ -189,14 +183,14 @@ http_response* http_response_create(http_status_code c, http_content_type res_ty
         return r;
     }
 
-    int ser = req_deserializing_lut[res_type];
+    int ser = MIME_LUT[res_type].flags & MIME_FLAG_SERDE;
     if (!ser && __type != NULL) {
         r->type = CONTENT_BINARY;   // application/octet-stream for unknown formats.
         if (res_type >= CONTENT_TYPE_N_MEMB) {
             mlog_warn("couldn't serialize due to bad type: %d, sending raw data", (int)res_type);   
             return r;
         }
-        char* mime_type_str = str_response_type_lut[res_type];
+        char* mime_type_str = (char*)MIME_LUT[res_type].full_str;
         mlog_warn("MCFW doesn't support serialization of type: %.s", mime_type_str);
         return r;
     }

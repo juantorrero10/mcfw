@@ -1,0 +1,33 @@
+%{
+#include "../public/http.h"
+struct mime_str_map { const char *name; int id; };
+%}
+struct mime_str_map;
+%7bit
+%language=C
+%readonly-tables
+%enum
+%struct-type
+%compare-lengths
+%define hash-function-name str_hash
+%define lookup-function-name mime_str_lookup
+%define word-array-name str_wordlist
+
+%%
+text/plain, CONTENT_TEXT
+text/html, CONTENT_HTML
+text/javascript, CONTENT_JAVASCRIPT
+text/event-stream, CONTENT_EVENT_STREAM
+text/css, CONTENT_CSS
+application/json, CONTENT_JSON
+application/xml, CONTENT_XML
+application/wasm, CONTENT_WASM
+application/octet-stream, CONTENT_BINARY
+application/xhtml+xml, CONTENT_XHTML
+application/pdf, CONTENT_PDF
+image/svg+xml, CONTENT_SVG
+image/png, CONTENT_PNG
+image/jpeg, CONTENT_JPEG
+image/vnd.microsoft.icon, CONTENT_ICO
+font/woff2, CONTENT_WOFF2
+%%

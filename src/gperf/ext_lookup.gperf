@@ -1,0 +1,30 @@
+%{
+#include "../public/http.h"
+struct mime_ext_map { const char *name; int id; };
+%}
+struct mime_ext_map;
+%7bit
+%language=C
+%readonly-tables
+%enum
+%struct-type
+%compare-lengths
+%define hash-function-name ext_hash
+%define lookup-function-name mime_ext_lookup
+%define word-array-name ext_wordlist
+
+%%
+.txt, CONTENT_TEXT
+.html, CONTENT_HTML
+.css, CONTENT_CSS
+.js, CONTENT_JAVASCRIPT
+.json, CONTENT_JSON
+.xhtml, CONTENT_XHTML
+.bin, CONTENT_BINARY
+.pdf, CONTENT_PDF
+.svg, CONTENT_SVG
+.png, CONTENT_PNG
+.jpeg, CONTENT_JPEG
+.ico, CONTENT_ICO
+.woff2, CONTENT_WOFF2
+%%

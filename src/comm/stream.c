@@ -4,14 +4,17 @@
 #include <stdlib.h>
 #include <time.h>
 #include <assert.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 #include <asclib/core.h>
 #include <asclib/net/tcp.h>
+#include <asclib/io.h>
 #include <asclib/sync.h>
 
 #include "../public/types.h"
 #include "../private/types.h"
-#include "../private/stream.h"
+#include "../private/comm.h"
 #include "../private/configs.h"
 #include "../private/glob.h"
 #include "../private/log.h"
@@ -26,13 +29,12 @@ void stream_inm(http_stream* out, size_t total_size, u8_slice* start_with, int f
         .client_fd = fd,
         .encoding = TRANSFER_INMEDIATE,
         .alignment = ALIGN_HEADER,
-        .total_read = 0,
+        .total_size = total_size,
         .data.inm = VEC_NEW(total_size),
         .evacuate = NULL,
     };
     assert(out->data.inm.data);
     if (start_with) {
-        mlog_info("data: %p, other: %p, len: %zu", out->data.inm.data, start_with->data, start_with->len);
         memcpy(out->data.inm.data, start_with->data, start_with->len);
         out->data.inm.count = start_with->len;
     }
@@ -73,19 +75,66 @@ static streaming_result __stream_full_inm(http_stream* s) {
 
         // Check for 
         s->data.inm.count += sz;
-        if (s->total_read > MAX_BODY_SIZE) return STRET_ERR(HTTP_CONTENT_TOO_LARGE);
+        if (s->total_size > MAX_BODY_SIZE) return STRET_ERR(HTTP_CONTENT_TOO_LARGE);
 
     }
-    s->total_read = s->data.inm.count;
-    mlog_info("clear!");
+    s->total_size = s->data.inm.count;
     return STRET_OK(&s->data.inm);
-} 
+}
 
 
-inline streaming_result stream_build_full_body(http_stream* s) {
-    mlog_info("a");
+inline streaming_result stream_pull_complete(http_stream* s) {
     if (s->encoding == TRANSFER_INMEDIATE) {
         return __stream_full_inm(s);
     }
     return STRET_ERR(HTTP_NOT_IMPLEMENTED);
+}
+
+
+void stream_file(http_stream* out, int client_fd, u8_slice file_name, http_request* req) {
+    (void)req;
+    if (!out) return;
+    *out = (http_stream){
+        .client_fd = client_fd,
+        .encoding = TRANSFER_FILE,
+        .alignment = ALIGN_HEADER,
+        .total_size = 0,
+        .data.file.ranges_header = http_get_header_val(SLICE_CSTR_LIT("Ranges"), &req->misc_headers),
+        .data.file.file_name = file_name,
+        .evacuate = NULL,
+    };
+    int fd = asc_open((char*)file_name.data, O_RDONLY, 0);
+    if (fd <= 0) {
+        mlog_error("Could not open file '%.*s': %s", SLICE_FMT(file_name), strerror(errno));
+        close(fd);
+    }
+    struct stat st = {0};
+    fstat(fd, &st);
+    out->data.file.last_modified = st.st_mtime;
+    out->data.file.file_fd = fd;
+    out->total_size = st.st_size;
+}
+
+#define FILE_CHUNK_THRESHOLD 16386 
+
+static streaming_result __stream_file_pc(http_stream* s) {
+    if (s->total_size == FILE_CHUNK_THRESHOLD) {
+        mlog_warn("Not supported yet");
+        // TODO: Use transfer: 
+        return STRET_ERR(HTTP_INTERNAL_SERVER_ERROR);
+    }
+    await(asc_sendfile(s->client_fd, s->data.file.file_fd, s->total_size));
+    close(s->data.file.file_fd);
+    return STRET_OK(NULL);
+}
+
+
+
+streaming_result stream_push_complete(http_stream* s) {
+    switch (s->encoding) {
+    case TRANSFER_FILE:
+        return __stream_file_pc(s);
+    default:
+        return STRET_ERR(HTTP_INTERNAL_SERVER_ERROR);
+    }
 }

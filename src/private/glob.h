@@ -3,6 +3,7 @@
 
 #include "configs.h"
 #include "version.h"
+#include "comm.h"
 #include <crefl/types.h>
 
 #define CACHED_ENUM_STR_STATUS g_cached_str_status
@@ -33,5 +34,7 @@ extern char STR_SCRATCH[4096];
 extern const int req_deserializing_lut[];
 extern const int req_serializing_lut[];
 extern char* str_response_type_lut[];
+
+extern mime_lut_entry MIME_LUT[];
 
 #endif // PRIVATE_GLOB_H_

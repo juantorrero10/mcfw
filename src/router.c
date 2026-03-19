@@ -64,7 +64,7 @@ router* router_create(router_entry* entries, size_t amount) {
         u8_vec_push(&routes_pool, &entries[i].route_str);
 
         // Push typename string if necesary
-        if (!req_deserializing_lut[entries[i].expect]) continue;
+        if (!(MIME_LUT[entries[i].expect].flags & MIME_FLAG_SERDE)) continue;
         if (!entries[i].deserialize_typename.data) { 
             mlog_error("Received a null string for type name on route idx: %zu", i);
             VEC_FREE(routes_pool);
@@ -89,7 +89,7 @@ router* router_create(router_entry* entries, size_t amount) {
 
 
         // Get for the typename if necesary
-        if (!req_deserializing_lut[entries[i].expect]) continue;
+        if (!(MIME_LUT[entries[i].expect].flags & MIME_FLAG_SERDE)) continue;
         word_end_typename += entries[i].deserialize_typename.len;
         _entries[i].deserialize_typename = SLICE_VIEW(typename_pool.data, word_start_typename, word_end_typename);
         word_start_typename = word_end_typename; 
