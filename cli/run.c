@@ -86,7 +86,6 @@ int cmd_run() {
     sprintf(argv[2], "%d", g_flags.log_level);
     argv[3] = (g_flags.watch)? "--enable-hot-reloading" : NULL;
 
-    signal(SIGINT, SIG_IGN);
     int ret = run_subprocess(
         MCFW_BINARY, 
         argv, 

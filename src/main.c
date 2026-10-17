@@ -1,18 +1,6 @@
-#include <unistd.h>
-#include <stdio.h>
-#include <linux/limits.h>
-#include <string.h>
-#include <stdlib.h>
-#include <errno.h>
-
-#include <crefl/core.h>
-#include <crefl/serial/err.h>
-#include <crefl/serial/formats.h>
-
-#include "vendor/argparse.h"
-#include "private/configs.h"
-#include "private/log.h"
-#include "private/glob.h"
+#define BUFFERS_IMPLEMENTATION
+#define ARENA_IMPLEMENTATION
+#include <private/mcfw.h>
 
 
 mcfw_arg_config ARG_FLAGS = {0};
@@ -21,20 +9,20 @@ app_config* APP_CONFIG_STRUCT = NULL;
 char STR_SCRATCH[4096] = {0};
 const REnum* CACHED_ENUM_REQ_KIND = NULL;
 const REnum* CACHED_ENUM_STR_STATUS = NULL;
+const REnum* CACHED_ENUM_CONTENT_TYPE = NULL;
 
 
 
 static app_config* load_config();
 static void __free_config();
 static void parse_args(int argc, const char** argv);
-void server_start();
 
 
 int main(int argc, const char** argv) {
 
     parse_args(argc, argv);
     g_app_config = load_config();
-    mlog_info("loaded_config");
+    mlog_info("loaded config");
     
     atexit(__free_config);
 

@@ -1,5 +1,5 @@
 %{
-#include "../public/http.h"
+#include "../include/public/http.h"
 struct mime_str_map { const char *name; int id; };
 %}
 struct mime_str_map;

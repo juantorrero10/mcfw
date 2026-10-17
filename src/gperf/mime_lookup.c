@@ -31,7 +31,7 @@ error "gperf generated tables don't work with this execution character set. Plea
 
 #line 1 "ext_lookup.gperf"
 
-#include "../public/http.h"
+#include "../include/public/http.h"
 struct mime_ext_map { const char *name; int id; };
 #line 5 "ext_lookup.gperf"
 struct mime_ext_map;
@@ -259,7 +259,7 @@ error "gperf generated tables don't work with this execution character set. Plea
 
 #line 1 "str_lookup.gperf"
 
-#include "../public/http.h"
+#include "../include/public/http.h"
 struct mime_str_map { const char *name; int id; };
 #line 5 "str_lookup.gperf"
 struct mime_str_map;

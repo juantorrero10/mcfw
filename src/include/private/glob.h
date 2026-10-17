@@ -1,9 +1,8 @@
 #ifndef PRIVATE_GLOB_H_
 #define PRIVATE_GLOB_H_
 
-#include "configs.h"
-#include "version.h"
-#include "comm.h"
+#include <private/http.h>
+#include <private/version.h>
 #include <crefl/types.h>
 
 #define CACHED_ENUM_STR_STATUS g_cached_str_status
@@ -23,8 +22,8 @@ extern app_config* APP_CONFIG_STRUCT;
 #define CREFL_SCOPES_TABLE g_crefl_scopes_table
 #define APP_CURR_VERSION g_curr_reload_version
 
-extern app_context_table APP_CTX_TABLE;
-extern crefl_scope_table CREFL_SCOPES_TABLE;
+extern AppContextTable APP_CTX_TABLE;
+extern CReflScopeTable CREFL_SCOPES_TABLE;
 extern uint32_t APP_CURR_VERSION;
 
 #define STR_SCRATCH g_str_scratch
@@ -35,6 +34,6 @@ extern const int req_deserializing_lut[];
 extern const int req_serializing_lut[];
 extern char* str_response_type_lut[];
 
-extern mime_lut_entry MIME_LUT[];
+extern MIMELutEntry MIME_LUT[];
 
 #endif // PRIVATE_GLOB_H_

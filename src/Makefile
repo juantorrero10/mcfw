@@ -1,16 +1,17 @@
 TARGET_HOST = .mcfw_server	# Server host binary
 
 
-LIBS_DIR = ../dependencies
+DEPS_DIR = ../dependencies
+VENDOR_DIR = vendor 
+INCLUDE_DIR = include
 
 
-INCLUDE = ../dependencies
 CC = gcc
-CFLAGS_HOST_D = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -g 
-CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE) -m64 -MMD -MP -g -O2
-CFLAGS = $(CFLAGS_HOST_R)
+CFLAGS_HOST_D = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE_DIR) -I$(DEPS_DIR) -I$(VENDOR_DIR) -m64 -MMD -MP -g 
+CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE_DIR) -I$(DEPS_DIR) -I$(VENDOR_DIR) -m64 -MMD -MP -g -O2
+CFLAGS = $(CFLAGS_HOST_D)
 
-LIBS = -L$(LIBS_DIR) -Wl,--whole-archive -l:crefl/libcrefl.a \
+LIBS = -L$(DEPS_DIR) -Wl,--whole-archive -l:crefl/libcrefl.a \
 	 -l:asclib/libasclib.a -Wl,--no-whole-archive \
 	-rdynamic -ldl -lpthread
 
@@ -58,8 +59,8 @@ $(OUT_OBJ)/gperf/str_to_content_type.o: CFLAGS += -Wno-missing-field-initializer
 
 all: $(BIN_HOST)
 all:
-	@mkdir -p $(INCLUDE)/mcfw
-	@cp -r public/* $(INCLUDE)/mcfw
+	@mkdir -p $(DEPS_DIR)/mcfw
+	@cp -r $(INCLUDE_DIR)/public/* $(DEPS_DIR)/mcfw
 
 # == COMPILE ==== 
 $(OUT_OBJ)/%.o: $(HOST_SRC)/%.c | $(OUT_OBJ)

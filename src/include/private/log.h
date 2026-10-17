@@ -51,7 +51,7 @@ extern char g_time_buffer[];
 
 #define mlog_error(msg, ...) do{\
     _get_time_str(g_time_buffer);\
-    printf("\033[Kmcfw: " COLOR_GREY"[%s]" COLOR_RED " ERROR" COLOR_WHITE " (%s): "msg""COLOR_RESET"\r\n", g_time_buffer, __FUNCTION__,##__VA_ARGS__);\
+    printf("\033[Kmcfw: " COLOR_GREY"[%s]" COLOR_RED " ERROR" COLOR_WHITE " (%s): "msg""COLOR_RESET"\r\n", g_time_buffer, __FUNCTION__, ##__VA_ARGS__);\
 } while(0)
 
 #define mlog_panic(msg, ...) do{\

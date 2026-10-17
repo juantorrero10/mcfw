@@ -16,6 +16,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <time.h>
+#include <signal.h>
 
 #define MAX(a, b) ((a) > (b))? (a) : (b)
 
@@ -194,7 +195,7 @@ static void get_obj_list(char_vec* v) {
 
 int cmd_build(int recompilation) {
     int ret = 1;
-
+    
     struct stat st;
     int e = stat(DEPENDENCIES_FOLDER, &st) == 0;
     if (!e || !S_ISDIR(st.st_mode)) {

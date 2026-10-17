@@ -1,46 +1,44 @@
 #define _GNU_SOURCE
 
-#include "../public/http.h"
-#include "../private/http.h"
-#include "../private/comm.h"
+#include <private/mcfw.h>
 
-mime_lut_entry MIME_LUT[CONTENT_TYPE_N_MEMB];
+MIMELutEntry MIME_LUT[CONTENT_TYPE_N_MEMB];
 
-// get content type by extension
-struct mime_ext_map { const char *name; int id; };
-const struct mime_ext_map *
-mime_ext_lookup (const char *str, size_t len);
 
-static inline u8_slice get_extension(u8_slice* file_name) {
-    uint8_t* ptr = (uint8_t*)memrchr(file_name->data, '.', file_name->len);
-    if (!ptr) return (u8_slice){0};
-    return SLICE_FROM(ptr, file_name->len - (ptr - file_name->data));
+static inline DStatic get_extension(DStatic* file_name) {
+    uint8_t* ptr = (uint8_t*)memrchr(file_name->s_ptr, '.', file_name->count);
+    if (!ptr) return (DStatic){0};
+    size_t len = (size_t)file_name->s_ptr - ((size_t)ptr - file_name->count);
+    return DS_FROM(ptr, len, len);
 }
 
-
-http_response* static_file_handler(http_request* req, u8_slice* file_name, http_content_type router_expect) {
+void static_file_handler(
+    const HttpRequest* req,
+    HttpResponse* res,      
+    DStatic* file_path,
+    HttpContentType router_expect
+) {
     // TEMP
-    http_content_type t = router_expect;
+    (void)req;
+    HttpContentType t = router_expect;
     if (t == CONTENT_NOT_SPECIFIED) {
-        u8_slice ext = get_extension(file_name);
+        DStatic ext = get_extension(file_path);
         const struct mime_ext_map * _res = NULL;
-        if (!ext.data) t = CONTENT_BINARY;
+        if (!ext.s_ptr) t = CONTENT_BINARY;
         else {
-            _res = mime_ext_lookup((const char*)ext.data, ext.len);
-            t = (_res)? (http_content_type)_res->id : CONTENT_BINARY;
+            _res = mime_ext_lookup((const char*)ext.s_ptr, ext.count);
+            t = (_res)? (HttpContentType)_res->id : CONTENT_BINARY;
         }
     }
 
-    http_response* r =  http_response_create(HTTP_OK, t, SLICE_CSTR_LIT(MIME_LUT[t].full_str), NULL, VEC_FROM_SLICE((*file_name)), TRANSFER_FILE);
-    u8_slice fn = *file_name;
-    stream_file(&r->stream, -1, fn, req);
-    return r;
+    res->type_string = DS_CSTR((char*)MIME_LUT[t].full_str);
+    res_set_content_file(res, t, *file_path, false);
 }
 
 
 
 __attribute__((section("rdata")))
-mime_lut_entry MIME_LUT[CONTENT_TYPE_N_MEMB] = {
+MIMELutEntry MIME_LUT[CONTENT_TYPE_N_MEMB] = {
     [CONTENT_TEXT] = {
         .mime_str = "text/plain",
         .full_str = "text/plain; charset=utf-8",

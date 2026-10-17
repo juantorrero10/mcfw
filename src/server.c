@@ -1,571 +1,180 @@
-#include <string.h>
-#include <strings.h>
-#include <errno.h>
-#include <assert.h>
-#include <sys/time.h>
-#include <time.h>
-
+#include <private/mcfw.h>
 #include <asclib/core.h>
-#include <asclib/net/tcp.h>
-#include <asclib/sync.h>
-#include <asclib/cleanup.h>
-
-#include <crefl/core.h>
-#include <crefl/scope.h>
-#include <crefl/serial/formats.h>
-
-#include "vendor/picohttpparser.h"
-
-#include "public/types.h"
-#include "public/router.h"
-#include "public/http.h"
-#include "public/resources.h"
-
-#include "private/comm.h"
-#include "private/http.h"
-#include "private/router.h"
-#include "private/version.h"
-#include "private/glob.h"
-#include "private/log.h"
+#include <asclib/env.h>
 
 #define MIN(a, b) ((a) < (b))? (a) : (b)
 
+// Static
+// TODO: if asclic changes to multithreading, put a mutex
+static uint64_t s_n_clients = 0;
+_Public_ uint64_t server_get_total_clients() { return s_n_clients; }
 
-#define TOTAL_CLIENTS g_n_clients
-static uint64_t TOTAL_CLIENTS = 0;
-
-static oneshot_tx_ref_t g_shutdown = NULL;
-
-oneshot_tx_ref_t resources_graceful_shutdown() { return g_shutdown; }
-uint64_t* resources_total_clients() { return &TOTAL_CLIENTS; }
-
-static inline char* get_gmt_date(char* write_at, size_t len) {
-    time_t now = time(NULL);
-    struct tm *gmt = gmtime(&now);
-    // %a = Abbreviated weekday (Sun)
-    // %d = Day of month (01)
-    // %b = Abbreviated month (Mar)
-    // %Y = Year (2026)
-    // %H:%M:%S = Time
-    strftime(write_at, len, "%a, %d %b %Y %H:%M:%S GMT", gmt);
-    return write_at;
+// TODO: if asclic changes to multithreading, put a mutex
+static oneshot_tx_ref_t s_shutdown_oneshot = NULL;
+_Public_ void server_stop() {
+    oneshot_tx_t tx = oneshot_take_tx(s_shutdown_oneshot);
+    uint64_t payload = 0xDEADBEEF;
+    (void)await_ret(chan_err_t, asc_oneshot_send(tx, (void*)payload));
+    oneshot_drop_tx(tx);
 }
 
-#define SEND_TIMEOUT 2000
-#define STRIP_HTTP_PREFIX(_str_expr) (_str_expr + 5)
-
-/**
- * @brief Send a bodyless error back to the client.
- * This is when 500's, 404's, 405's and simple 400's are sent.
- */
-void send_response_back_host_error(int fd, int code, int keep_alive) {
-    uint8_t __r[MAX_HEADER_SIZE];
-    u8_vec buffer = VEC_FROM(__r, 0, sizeof(__r));
-
-    const char* str_status = refl_enum_get_label((REnum*)CACHED_ENUM_STR_STATUS, code);
-    if (!str_status) str_status = "INTERNAL_SERVER_ERROR";
-
-    char* fmt_template = 
-        "HTTP/1.1 %03d %s\r\n"
-        "Server: "SERVER_HEADER_VAL"\r\n"
-        "Connection: %s\r\n"
-        "Content-Length: 0\r\n"
-        "\r\n"
-    ;
-    buffer.count = snprintf((char*)buffer.data, buffer.capacity, fmt_template, code, 
-            STRIP_HTTP_PREFIX(str_status), (keep_alive)? "keep-alive" : "close");
-
-    ssize_t sz = io_timeout(ssize_t, asc_send(fd, buffer.data, buffer.count), SEND_TIMEOUT, {
-        mlog_warn("<%d> timed out", fd);
-        return;
-    });
-    if (sz < 0) {
-        mlog_warn("couldn't send to client: %s", strerror(errno));
-    }
-}
-
-void send_response_back(http_response* res, int keep_alive) {
-
-    uint8_t __r[MAX_HEADER_SIZE];
-    u8_vec buffer = VEC_FROM(__r, 0, sizeof(__r));
-    // Get content type header
-    char* ctype_str = (res->type > 0 && res->type < CONTENT_TYPE_N_MEMB)? (char*)MIME_LUT[res->type].full_str : NULL;
-    if (ctype_str == NULL) ctype_str = "application/octet-stream";
-
-    // Get string version of the error code.
-    const char* str_status = refl_enum_get_label((REnum*)CACHED_ENUM_STR_STATUS, res->code);
-    if (!str_status) str_status = "OK"; // Fallback case.
-
-    char date_buff[32];
-
-    // TODO: vec push
-
-    char* fmt_template = 
-        "HTTP/1.1 %03d %s\r\n"
-        "Server: "SERVER_HEADER_VAL"\r\n"
-        "Date: %s\r\n"
-        "Connection: %s\r\n"
-        "Access-Control-Allow-Origin: *\r\n"
-        "Content-Type: %s\r\n"
-        "Content-Length: %zu\r\n"
-        "\r\n"
-        ;
-    buffer.count = snprintf((char*)buffer.data, buffer.capacity, fmt_template, 
-        res->code, STRIP_HTTP_PREFIX(str_status), get_gmt_date(date_buff, 32), (keep_alive)? "keep-alive" : "close",
-        ctype_str, res->stream.total_size);
-
-    // If somehow headers get too heavy and exceed HEADER_MAX_SIZE - 2 (trailing \r\n)
-    if (buffer.count >= buffer.capacity - 2) {
-        res_template_host_error(res->stream.client_fd, HTTP_INTERNAL_SERVER_ERROR, 0);
-        return;
-    }
-
-if (res->stream.encoding == TRANSFER_INMEDIATE) {
-    struct iovec vecs[2] = {
-        // Headers
-        {.iov_base = buffer.data, .iov_len = buffer.count},
-        // Body
-        {.iov_base = res->stream.data.inm.data, .iov_len = res->stream.data.inm.count}
-    };
+// Task local
+ENV_DECLARE(AppContext*, ctx);
+AppContext* server_get_ctx() { return ENVGET_ctx();}
+void* server_get_crefl_handle() { return ENVGET_ctx()->crefl_data->c_handle; }
 
 
-    struct msghdr full_msg = {
-        .msg_iov = vecs, .msg_iovlen = 2
-    };
-
-    ssize_t sz = io_timeout(ssize_t, asc_sendmsg(res->stream.client_fd, &full_msg), SEND_TIMEOUT, {
-        return;
-    });
-    if (sz < 0) {
-        mlog_warn("couldn't send to client: %s", strerror(errno));
-    }
-} else {
-    ssize_t sz = io_timeout(ssize_t, asc_send(res->stream.client_fd, buffer.data, buffer.count), SEND_TIMEOUT, {
-        return;
-    });
-    if (sz < 0) {
-        mlog_warn("couldn't send headers to client: %s", strerror(errno));
-    }
-    stream_push_complete(&res->stream);
-}
-    
-}
-
-http_status_code try_serialize_response(const app_context* c, http_response* res, u8_vec* out_buff, RStruct** out_rs) {
-    RStruct* s = refl_fetch_struct_from(c->crefl_data->c_handle, res->serialize_typename);
-    if (!s) {
-        // The app has provided an invalid name
-        mlog_error("Couldn't find reflected type: %s for serialization.", res->serialize_typename);
-        return HTTP_INTERNAL_SERVER_ERROR;
-    }
-    if (!res->stream.data.inm.data) {
-        mlog_error("Tried to serialize a null pointer.");
-        return HTTP_INTERNAL_SERVER_ERROR;
-    }
-    switch (res->type)
-    {
-    case CONTENT_JSON:
-        uint8_t* out;
-        out_buff->count = serialize_json(s, res->stream.data.inm.data, (void**)&out, 1);
-        out_buff->data = out;
-        if (out_rs) *out_rs = s;
-        return HTTP_OK;
-    
-    default:
-        return HTTP_INTERNAL_SERVER_ERROR;
-        break;
-    }
-    
-}
-
-http_status_code try_deserialize_body(const router_entry* restrict re, const app_context* restrict c, http_request* req, RStruct** out_rs) {
-    // Crefl uses null term so we have to null terminate it.
-    memcpy(STR_SCRATCH, re->deserialize_typename.data, re->deserialize_typename.len);
-    STR_SCRATCH[re->deserialize_typename.len] = '\0';
-    // Search the type in the scope.
-    RStruct* s = refl_fetch_struct_from(c->crefl_data->c_handle, STR_SCRATCH);
-    if (!s) {
-        // The app has provided an invalid name
-        mlog_error("Couldn't find reflected type: %s for deserialization.", STR_SCRATCH);
-        return HTTP_INTERNAL_SERVER_ERROR;
-    }
-    if (req->body.len == 0) return HTTP_BAD_REQUEST;
-    DeserializeResult dr = {0};
-    switch (re->expect)
-    {
-    case CONTENT_JSON:
-        dr = deserialize_json(s, req->body.data, req->body.len);
-        break;
-    
-    default:
-        return HTTP_INTERNAL_SERVER_ERROR;
-    }
-
-    if (dr.st == DR_ERR) return HTTP_UNPROCESABLE_CONTENT;
-    req->deserialized.data = dr.data.buff;
-    req->deserialized.capacity = req->deserialized.count = s->total_size;
-    if (out_rs) *out_rs = s;
-    return HTTP_OK;
-}
-
-
-static inline void check_and_free_deserialized(RStruct* s, u8_vec* deserialized) {
-    if (!s) { 
-        mlog_error("Couldn't get the metadata to free the deserialized data.");
-        return;
-    }
-    if (!deserialized->data) return;
-    refl_generic_destructor(s, deserialized->data);
-}
-
-
-static int _get_req_from_str(u8_slice* method) {
-    REnum* e = (REnum*)CACHED_ENUM_REQ_KIND;
-    for (size_t i = 0; i < e->n_elements; i++)
-    {
-        size_t method_len = strlen(e->names[i]);
-        if (method_len != method->len) continue;
-        if (!memcmp(method->data, e->names[i], method->len)) return e->indexes[i];
-    }
-    
-    return -1;
-}
-
-/**
- * @brief Entry point for every tcp connection.
- */
 async(client_handler, int fd) {
     detach;
     int fd = clean_on_drop(arg(fd));
-    // Global resources
-    TOTAL_CLIENTS++;
 
-    int close_connection = 0;
-    int needs_deserialization = 0;
-
-    // Buffer to get the user response.
-    // This buffer will be reuse when sending the response back if posible.
-    char __b[MAX_HEADER_SIZE];
-    u8_vec buff = VEC_FROM(__b, 0, MAX_HEADER_SIZE);
-
-    // Pico headers buffer
-    struct phr_header phr_headers[PHR_HEADER_BUFF_SIZE];
+    s_n_clients++;
+    ENVSET_ctx(NULL);
     
-    // Hot reloading: get the current version and get the most recent router.
+    // Init arena
+    Arena arena = mcfw_arena_init(RECV_BUFF_SIZE);
+    
+
+    // main objects
+    HttpStatusCode status = HTTP_OK;
+    HttpRequest req = {0};
+    HttpResponse res = res_init(fd);
+    
+    // Get app context
     size_t version = APP_CURR_VERSION;
-    app_context* c = version_get_ctx(version);
-    if (!c) { 
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, 0);
-        goto __exit_premature;
+    AppContext* ctx = version_get_ctx(APP_CURR_VERSION);
+    if (!ctx) {
+        res.code = HTTP_INTERNAL_SERVER_ERROR;
+        res_send(&res, SEND_TIMEOUT);
+        goto __exit_err;
     }
-    // Increase reference count the app ctx.
-    c->ref_count++;
-    router* rout = &c->router;
+    ctx->ref_count++;
+    ENVSET_ctx(ctx);
 
-__recv_begin:
-
-    buff.count = 0;
-
-    ssize_t sz = 0;
-    time_t curr_time = time(NULL);
+    // buffers init
+    DStatic headers_buff;
+    DStatic unused_data; // Part of the body or next request if pipelined
     
-    // pipelining
-    u8_slice pipeline_trail = {0};
-    
-    
-__recv_att:
-
-    sz = io_timeout(ssize_t, asc_recv(fd, buff.data + buff.count, buff.capacity - buff.count), RECV_HEADER_TIMEOUT, {
-        if (buff.count > 0) send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, 0);
-        goto __exit_premature;
-    });
-    if (sz < 0) {
-        mlog_error("Couldn't receive from client <%d>: %s", fd, strerror(errno));
-        goto __exit_premature;
-    } else if (sz == 0) {
-        goto __exit_premature;
-    }
-    buff.count += sz;
-
-    // Check for total timeout
-    if (time(NULL) - curr_time > TOTAL_HEADER_TIMEOUT) {
-        send_response_back_host_error(fd, HTTP_REQUEST_TIMEOUT, 0);
-        goto __exit_premature;
-    }
-
-__parse:
-
-    //mlog_info("BUFF HAS:\n%.*s", VEC_FMT(buff));
-
-    // Build request struct
-    http_request req = (http_request){0}; 
-    req.misc_headers.n_headers = PHR_HEADER_BUFF_SIZE;
-    u8_slice method = {0};
-
-    memset(phr_headers, 0, sizeof(phr_headers));
-
-    // ret -> bytes consumed or error.
-    int parse_result = phr_parse_request(
-        (const char*)buff.data, 
-        buff.count, 
-        (const char**)&method.data, 
-        &method.len, 
-        (const char**)&req.path.data, 
-        &req.path.len, 
-        &req.minor_version,
-        phr_headers, 
-        &req.misc_headers.n_headers,
-        0);
+    while(1) {
+        status = req_recv_headers(
+            &arena,
+            fd,
+            &req,
+            &headers_buff, 
+            &unused_data 
+        );
+        if (status != HTTP_OK) {
+            res.code = status;
+            res_send(&res, SEND_TIMEOUT);
+            goto __exit_err;
+        }
 
 
-    // Bad headers
-    if (parse_result == -1) {
-        mlog_info("bad buffer(%zu bytes): %.*s", buff.count, VEC_FMT(buff));
-        send_response_back_host_error(fd, HTTP_BAD_REQUEST, 0);
-        goto __exit_premature;
-    }
+        // Get route handle
+        Router* router = &ctx->router;
+        RoutingResult r = router_get_entry(router, &req);
+        if (!r.is_ok) {
+            res.code = r.data.err;
+            res_send(&res, SEND_TIMEOUT);
+            goto __exit_err;
+        }
+        RouterEntry* endpoint = r.data.ok_data;
+
+        status = req_fill_core_headers(&req, endpoint->expect);
+        if (status != HTTP_OK) {
+            res.code = status;
+            mlog_warn("2: %d", res.code);
+            res_send(&res, SEND_TIMEOUT);
+            goto __exit_err;
+        }
+
+        // Get body
+        if (req.r_method >= PAYLOAD_METHODS_IDX) {
+            __recv_body:
+            status = req_recv_body(
+                fd, 
+                &req, 
+                ctx, 
+                endpoint->deserialize_typename, 
+                &unused_data
+            );
+            if (status == HTTP_CONTINUE) {
+                goto __recv_body;
+            }
+            if (status != HTTP_OK) {
+                res.code = r.data.err;
+                mlog_warn("3: %d", res.code);
+                res_send(&res, SEND_TIMEOUT);
+                goto __exit_err;
+            }
+            // When receiving the body we know how much to read
+            // So there will be no unused data
+            unused_data = DS_EMPTY();
+        } 
 
 
-    // Incomplete headers
-    if (parse_result == -2) {
-        if (buff.count < buff.capacity) goto __recv_att; 
-        send_response_back_host_error(fd, HTTP_HEADERS_TOO_LARGE, 1);
-        goto __err_keep_alive;
-    }
-
-    struct http_header misc_headers[PHR_HEADER_BUFF_SIZE * 2];
-    // Since we are dealing with external stacks i don't trust it to be 0-initialized.
-    memset(misc_headers, 0, sizeof(misc_headers));
-
-    http_create_misc_headers_hashtable(phr_headers, misc_headers, PHR_HEADER_BUFF_SIZE * 2);
-
-    // Set the method and search for the handler
-    req.r_method = (request_method)_get_req_from_str(&method);
-    routing_result r = router_get_entry(rout, &req);
-    http_status_code code = r.data.err;
-    if (r.st == MCFW_ERR) {
-        send_response_back_host_error(fd, code, 1);
-        goto __err_keep_alive;
-    }
-
-    // The handler for the request.
-    router_entry* re = (router_entry*)r.data.ok_data;
-
-    
-    req.misc_headers.table = misc_headers;
-    req.misc_headers.capacity = PHR_HEADER_BUFF_SIZE * 2;
-    code = http_check_core_headers(&req, re);
-    if (code != HTTP_OK) {
-        send_response_back_host_error(fd, code, 0);
-        goto __exit_premature;
-    }
-
-
-    int more_data = 0;
-    int body_alloced = 0;
-
-    http_stream stream = {0};
-
-    // Parse the body
-    if (re->r_method >= PAYLOAD_METHODS_IDX) {
-
-        // Check for Expect: 100-continue
-        u8_slice expect = http_get_header_val(SLICE_CSTR_LIT("Expect"), &req.misc_headers);
-        if (
-            expect.data 
-            && expect.len == sizeof("100-continue") - 1 
-            && !strncasecmp((char*)expect.data, "100-continue", sizeof("100-continue") - 1)) 
+        // Execute handler
+        switch (endpoint->respond_with)
         {
-            send_response_back_host_error(fd, HTTP_CONTINUE, 1);
+        case ROUTER_FUNC:
+            if (endpoint->handler.method_fptr == NULL) {
+                mlog_error("The handler responsible for route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint->route_str));
+                res.code = HTTP_INTERNAL_SERVER_ERROR;
+                res_send(&res, SEND_TIMEOUT);
+                goto __exit_err;
+            }
+            endpoint->handler.method_fptr(&req, &res);
+            break;
+        case ROUTER_FILE:
+            if (endpoint->handler.file_name.s_ptr == NULL) {
+                mlog_error("The file returned by route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint->route_str));
+                res.code = HTTP_INTERNAL_SERVER_ERROR;
+                res_send(&res, SEND_TIMEOUT);
+                goto __exit_err;
+            }
+            static_file_handler(&req, &res, &endpoint->handler.file_name, endpoint->expect);
+            break;
+        
+        default:
+            break;
         }
 
-        switch(req.core_headers.tx_encoding) {
-            case TRANSFER_INMEDIATE:
-                req.body.data = buff.data + parse_result;
+        // Send response, cleanup and loop
+        bool keep_alive = res.keep_alive;
+        res_send(&res, SEND_TIMEOUT);
 
-                // Inmediate -> Clients specifies length with Content-Length
-                // If content fits withing inital read and we have read more => set a flag for later.
-                if ((req.core_headers.payload_len.content_length <= buff.capacity - parse_result)) {
-                    if (buff.count > parse_result + req.core_headers.payload_len.content_length) {
-                        more_data = 1;
-                        pipeline_trail = SLICE_VIEW(buff.data, parse_result + req.core_headers.payload_len.content_length, buff.count);
-                    }
-                    req.body.len = req.core_headers.payload_len.content_length;
-                    break;
-                }
-                req.body.len = buff.count - parse_result;
-                mlog_info("len: %zu", req.core_headers.payload_len.content_length);
-                stream_inm(
-                    &stream, 
-                    req.core_headers.payload_len.content_length, 
-                    &req.body, 
-                    fd
-                );
-                // TODO: allow streaming.
-                streaming_result sr = stream_pull_complete(&stream);
-                if (sr.st != MCFW_OK) {
-                    VEC_FREE(stream.data.inm);
-                    send_response_back_host_error(fd, sr.data.error_code, 0);
-                    goto __exit_premature;
-                }
-                req.body = SLICE_FROM(sr.data.vec->data, sr.data.vec->count);
-                body_alloced = 1;
-                break;
-                
-
-            default:
-                send_response_back_host_error(fd, HTTP_NOT_IMPLEMENTED, 1);
-                goto __err_keep_alive;
+        mcfw_arena_reset(&arena);
+        if (!keep_alive) break;
+        // Move data that we have read accidentally to the start of the buffer.
+        if (DS_IS_VALID(unused_data)) {
+            mcfw_arena_alloc(&arena, unused_data.count, true);
+            memmove(arena.p, unused_data.s_ptr, unused_data.count);
         }
-    } else {
-        // for GET DELETE HEAD => set more data if count is bigger than consumed headers
-        if(buff.count > (size_t)parse_result) {
-            more_data = 1;
-            pipeline_trail = SLICE_VIEW(buff.data, parse_result, buff.count);
-        }
-    
-    }
-
-    
-    // Get the reflected struct for destructing the data.
-    RStruct* deser_type = NULL;
-    needs_deserialization = MIME_LUT[re->expect].flags & MIME_FLAG_SERDE;
-
-    // Deserializing if its required.
-    if (needs_deserialization && re->r_method >= PAYLOAD_METHODS_IDX) {
-        http_status_code code = try_deserialize_body(re, c, &req, &deser_type);
-        if (code != HTTP_OK) {
-            send_response_back_host_error(fd, code, 1);
-            goto __err_keep_alive;
-        }
-    }
-
-
-    // Load balance a bit.
-    if (TOTAL_CLIENTS > 1) yield;
-
-    http_response* res = NULL;
-
-    // Call handler.
-    switch(re->respond_with) {
-    case ROUTER_FUNC:
-        if (re->handler.method_fptr == NULL) {
-            mlog_error("The handler responsible for route \"%.*s\" if a NULL pointer.", SLICE_FMT(re->route_str));
-            send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, 0);
-            goto __exit_premature;
-        }
-        res =  re->handler.method_fptr(&req);
-        break;
-    case ROUTER_FILE:
-        if (re->handler.file_name.data == NULL) {
-            mlog_error("The handler responsible for route \"%.*s\" if a NULL pointer.", SLICE_FMT(re->route_str));
-            send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, 0);
-            goto __exit_premature;
-        }
-        res = static_file_handler(&req, &re->handler.file_name, re->expect);
-        break;
-    default:
-        send_response_back_host_error(fd, HTTP_NOT_IMPLEMENTED, 0);
-        goto __exit_premature;
-    }
-
-    
-    if (body_alloced) free(req.body.data);
-
-    // Error while processing the response
-    if (!res) { 
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, 0);
-        mlog_error("null ptr received from method: %s %.*s", 
-            refl_enum_get_label((REnum*)CACHED_ENUM_REQ_KIND, req.r_method), SLICE_FMT(req.path));
-        goto __exit;
-    } else if (res->signature != HTTP_RES_SIGNATURE) {
-        send_response_back_host_error(fd, HTTP_INTERNAL_SERVER_ERROR, 0);
-
-        mlog_error("http response received from method: %s %.*s is garbage",
-            refl_enum_get_label((REnum*)CACHED_ENUM_REQ_KIND, req.r_method), SLICE_FMT(req.path));
-
-        goto __exit;
-    }
-
-    res->stream.client_fd = fd;
-
-    close_connection = !(req.core_headers.conn_keep_alive && !(res->flags & HTTP_FLAG_CLOSE_CONN));
-
-    if (re->respond_with == ROUTER_FILE) {
-        send_response_back(res, !close_connection);
-        goto __loop;
+        req_destroy(&req);
+        res_destroy(&res);
+        // loop
     }
     
-    RStruct* ser_type = NULL;
-    int swapped = 0;
-
-    // Serialize response if needed
-    if (res->serialize) {
-        // Swap buffers
-        u8_vec new_buff = VEC_NULL;
-        u8_vec old_buff = res->stream.data.inm;
-        http_status_code code = try_serialize_response(c, res, &new_buff, &ser_type);
-        res->stream.data.inm = new_buff;
-        res->stream.total_size = new_buff.count;
-        if (code != HTTP_OK) {
-            if (res->flags & HTTP_FLAG_DEALLOC_BODY) VEC_FREE(old_buff);
-            res_template_host_error(fd, code, 1);
-            free(res);
-            goto __err_keep_alive;
-        }
-        if (res->flags & HTTP_FLAG_DEEP_DEALLOC) refl_generic_destructor(ser_type, old_buff.data);
-        else if (res->flags & HTTP_FLAG_DEALLOC_BODY) VEC_FREE(old_buff);
-        swapped = 1;
+// Final cleanup
+__exit_err:
+    ctx->ref_count--;
+    if (ctx->ref_count == 0 && APP_CURR_VERSION != version) {
+        version_drop_ctx(ctx, 1);
     }
-
-
-    
-    // Send handler's response back
-    send_response_back(res, !close_connection);
-
-    // Freeings
-    if (swapped || res->flags & HTTP_FLAG_DEALLOC_BODY) VEC_FREE(res->stream.data.inm);
-    
-__loop:
-    free(res);
-    // Get back the begining if we are not closing the connection
-    if (!close_connection) {
-        if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);
-        // more_data flag determines that by the way the body was read, it may have also read part of another request if the client has pipelined
-        // if so, move the surplus data to the begining of the buffer for the next request to be procesed.
-        if (more_data) {
-            memmove(buff.data, pipeline_trail.data, pipeline_trail.len);
-            buff.count = pipeline_trail.len;
-            goto __parse;
-        }
-        goto __recv_begin; 
-    }
-
-
-__exit:
-    if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);
-__exit_premature:
-    c->ref_count--;
-    if (c->ref_count == 0 && APP_CURR_VERSION != version) {
-        version_drop_ctx(c, 1); }
-    TOTAL_CLIENTS--;
+    s_n_clients--;
     shutdown(fd, SHUT_RDWR);
-    task_return_void();
-
-__err_keep_alive:
-    if (needs_deserialization) check_and_free_deserialized(deser_type, &req.deserialized);
-    pipeline_trail = SLICE_VIEW(buff.data, parse_result, buff.count);
-    memmove(buff.data, pipeline_trail.data, pipeline_trail.len);
-    buff.count = pipeline_trail.len;
-    goto __parse;
-
+    mcfw_arena_destroy(&arena);
+    req_destroy(&req);
+    res_destroy(&res);
     end_return_void();
 }
+
+
 
 async(accept_loop, tcp_listener_t* t) {
     tcp_listener_t* t = arg(t);
     uint64_t shutdown_payload;
-    oneshot_pair_t graceful_shutdown = oneshot_new(sizeof(uint64_t), 1);
+    oneshot_pair_t graceful_shutdown = oneshot_new(sizeof(uint64_t), true);
     mlog_info("Listening on %hhu.%hhu.%hhu.%hhu:%hu", 
         t->ip_addr[0],
         t->ip_addr[1],
@@ -573,7 +182,7 @@ async(accept_loop, tcp_listener_t* t) {
         t->ip_addr[3],
         t->port
     );
-    g_shutdown = oneshot_move_tx(graceful_shutdown);
+    s_shutdown_oneshot = oneshot_move_tx(graceful_shutdown);
     while(1) {
         int client_fd = any_expect_winner_or(
             int, 0,
@@ -594,19 +203,7 @@ async(accept_loop, tcp_listener_t* t) {
     close(t->fd);
     end_return_void();
 }
-/*
-static task_handle_t spawn_task_on_fptr(async_fn fptr, void* arg) {
 
-
-    task__arg__constructor te =  {
-        .arg_malloced = 0,
-        .arg_size = sizeof(void*),
-        .fptr = *fptr,
-        .n_pages = TASK_DEFAULT_PAGES,
-        .value = arg
-    };
-    return __task_create(te);
-}*/
 
 async(server_init) {
     uint8_t addr[4];
@@ -617,8 +214,8 @@ async(server_init) {
     refl_threadlocal_init(1);
 
     // Load the cached reflected types
-    CACHED_ENUM_REQ_KIND = refl_fetch_enum("request_method");
-    CACHED_ENUM_STR_STATUS = refl_fetch_enum("http_status_code");
+    CACHED_ENUM_REQ_KIND = refl_fetch_enum("HttpRequestMethod");
+    CACHED_ENUM_STR_STATUS = refl_fetch_enum("HttpStatusCode");
 
 
     tcp_listener_t* t = clean_on_drop(asc_tcp_bind(addr, port));

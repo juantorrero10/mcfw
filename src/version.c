@@ -15,11 +15,7 @@
 #include <crefl/core.h>
 #include <crefl/scope.h>
 
-#include "private/configs.h"
-#include "private/version.h"
-#include "private/log.h"
-#include "private/glob.h"
-#include "private/router.h"
+#include <private/mcfw.h>
 
 #define MAX(a, b) ((a) > (b))? (a) : (b)
 
@@ -28,8 +24,8 @@
 
 #define APP_RELOAD_VER_INITIAL_VAL (uint32_t)-1
 
-app_context_table APP_CTX_TABLE = {0};
-crefl_scope_table CREFL_SCOPES_TABLE = {0};
+AppContextTable APP_CTX_TABLE = {0};
+CReflScopeTable CREFL_SCOPES_TABLE = {0};
 uint32_t APP_CURR_VERSION = APP_RELOAD_VER_INITIAL_VAL;
 
 async_(version_watch_async) {
@@ -40,7 +36,7 @@ async_(version_watch_async) {
 
     while(1) {
         // Watch source files
-        await(asc_inotify(files, NULL, 1, IN_MOVED_TO | IN_CLOSE_WRITE));
+        (void)await_ret(int, asc_inotify(files, NULL, 1, IN_MOVED_TO | IN_CLOSE_WRITE));
 
         // Send message to father
         kill(parent_pid, SIGUSR1);
@@ -63,11 +59,11 @@ async_(version_watch_async) {
     end_return_void();
 }
 
-static crefl_scope* _register_scope(void* crefl_handle, uint8_t* checksum) {
-    crefl_scope s = {.c_handle = crefl_handle, .c_ctx_ref_count = 0};
-    crefl_scope_table* t = &CREFL_SCOPES_TABLE;
+static CReflScope* _register_scope(void* crefl_handle, uint8_t* checksum) {
+    CReflScope s = {.c_handle = crefl_handle, .c_ctx_ref_count = 0};
+    CReflScopeTable* t = &CREFL_SCOPES_TABLE;
     memcpy(&s.c_checksum, checksum, 16);
-    crefl_scope* malloced = calloc(sizeof(crefl_scope), 1);
+    CReflScope* malloced = calloc(sizeof(CReflScope), 1);
     *malloced = s;
 
     size_t found_idx = (size_t)-1;
@@ -79,7 +75,7 @@ static crefl_scope* _register_scope(void* crefl_handle, uint8_t* checksum) {
     if (found_idx == (size_t)-1) {
         size_t old_c = t->t.capacity;
         t->t.capacity *= 2;
-        t->t.array = realloc(t->t.array, t->t.capacity * sizeof(crefl_scope*));
+        t->t.array = realloc(t->t.array, t->t.capacity * sizeof(void*));
         memset((void**)t->t.array + old_c, 0, old_c * sizeof(void*));
         t->occupied = realloc(t->occupied, t->t.capacity);
         memset(t->occupied + old_c, 0, old_c);
@@ -89,14 +85,14 @@ static crefl_scope* _register_scope(void* crefl_handle, uint8_t* checksum) {
     assert(found_idx != (size_t)-1);
 
     t->occupied[found_idx] = 1;
-    ((crefl_scope**)t->t.array)[found_idx] = malloced;
+    ((CReflScope**)t->t.array)[found_idx] = malloced;
     malloced->at_index = found_idx;
     t->t.size++;
-    return ((crefl_scope**)t->t.array)[found_idx];
+    return ((CReflScope**)t->t.array)[found_idx];
 }
 
 
-static void _drop_scope(crefl_scope* s) {
+static void _drop_scope(CReflScope* s) {
     size_t idx = s->at_index;
 
     if (CREFL_SCOPES_TABLE.occupied[idx] == 0) return;
@@ -110,9 +106,9 @@ static void _drop_scope(crefl_scope* s) {
 }
 
 
-static void _append_context(app_context* ctx) {
+static void _append_context(AppContext* ctx) {
     size_t found_idx = (size_t)-1;
-    app_context_table* t = &APP_CTX_TABLE;
+    AppContextTable* t = &APP_CTX_TABLE;
     for (size_t i = 0; i < t->t.capacity; i++)
     {
         if (t->occupied[i] == 0) {found_idx = i; break;}
@@ -131,7 +127,7 @@ static void _append_context(app_context* ctx) {
     }
 
     assert(found_idx != (size_t)-1);
-    ((app_context**)t->t.array)[found_idx] = ctx;
+    ((AppContext**)t->t.array)[found_idx] = ctx;
     ctx->at_index = found_idx;
     t->occupied[found_idx] = 1;
     t->t.size++;
@@ -142,7 +138,7 @@ static void _append_context(app_context* ctx) {
  * @brief Free an app context from the table.
  * @returns 1 or 0 depending if it has dropped the scope or not 
  */
-int version_drop_ctx(app_context*  a, int try_drop_scope) {
+int version_drop_ctx(AppContext*  a, int try_drop_scope) {
 
     size_t idx = a->at_index;
     int ret = 0;
@@ -171,7 +167,7 @@ static void _free_tables_exit() {
     for (size_t i = 0; i < APP_CTX_TABLE.t.capacity; i++)
     {
         if (APP_CTX_TABLE.occupied[i] != 1) continue;
-        version_drop_ctx(((app_context**)APP_CTX_TABLE.t.array)[i], 1);
+        version_drop_ctx(((AppContext**)APP_CTX_TABLE.t.array)[i], 1);
     }
     free(CREFL_SCOPES_TABLE.t.array);
     free(CREFL_SCOPES_TABLE.occupied);
@@ -179,10 +175,10 @@ static void _free_tables_exit() {
     free(APP_CTX_TABLE.occupied);
 }
 
-static void _register_context(router* r, void* dl_handle, crefl_scope* c_data) {
-    router rout = (r != NULL)? *r : (router){0};
+static void _register_context(Router* r, void* dl_handle, CReflScope* c_data) {
+    Router rout = (r != NULL)? *r : (Router){0};
 
-    app_context c = {
+    AppContext c = {
         .router = rout,
         .dl_handle = dl_handle,
         .crefl_data = c_data,
@@ -192,7 +188,7 @@ static void _register_context(router* r, void* dl_handle, crefl_scope* c_data) {
     };
     free(r);
     c_data->c_ctx_ref_count++;
-    app_context* malloced = calloc(sizeof(app_context), 1);
+    AppContext* malloced = calloc(sizeof(AppContext), 1);
     *malloced = c;
     _append_context(malloced);
 
@@ -216,7 +212,7 @@ typedef struct CREFL_PACKED
     uint32_t    n_sections;        
 } CREFL_Header;
 
-static int _crefl_needs_reloading(app_context* curr_ver, uint8_t* out_checksum) {
+static int _crefl_needs_reloading(AppContext* curr_ver, uint8_t* out_checksum) {
 
     int fd = open(CREFL_APP_FILE, O_RDONLY);
     if (fd < 0) mlog_error("Couldn't find reflected type metadata file ("CREFL_APP_FILE").");
@@ -239,10 +235,10 @@ static inline void init_tables() {
     // Allocate contexes table if is not set yet
     if (!APP_CTX_TABLE.t.array) {
         APP_CTX_TABLE.t = (r_array_t){
-            .array = calloc(sizeof(app_context*), INITIAL_CONTEXES_CAPACITY),
+            .array = calloc(sizeof(AppContext*), INITIAL_CONTEXES_CAPACITY),
             .capacity = INITIAL_CONTEXES_CAPACITY,
             .size = 0,
-            .chunk_size = sizeof(app_context*)
+            .chunk_size = sizeof(AppContext*)
         };
         APP_CTX_TABLE.occupied = malloc(INITIAL_CONTEXES_CAPACITY);
         memset(APP_CTX_TABLE.occupied, 0, INITIAL_CONTEXES_CAPACITY);
@@ -251,11 +247,11 @@ static inline void init_tables() {
 
     // Allocate crefl metadata table aswell
     if (!CREFL_SCOPES_TABLE.t.array) {
-        CREFL_SCOPES_TABLE.t = (DYN_ARRAY(crefl_scope*)){
-            .array = calloc(sizeof(crefl_scope*), INITIAL_SCOPES_CAPACITY),
+        CREFL_SCOPES_TABLE.t = (DYN_ARRAY(CReflScope*)){
+            .array = calloc(sizeof(CReflScope*), INITIAL_SCOPES_CAPACITY),
             .capacity = INITIAL_SCOPES_CAPACITY,
             .size = 0,
-            .chunk_size = sizeof(crefl_scope*)
+            .chunk_size = sizeof(CReflScope*)
         };
         CREFL_SCOPES_TABLE.occupied = malloc(INITIAL_SCOPES_CAPACITY);
         memset(CREFL_SCOPES_TABLE.occupied, 0, INITIAL_SCOPES_CAPACITY);
@@ -268,7 +264,7 @@ int load_app() {
     uint32_t next_version = APP_CURR_VERSION + 1;
 
     // Will be NULL in the first call to this function.
-    app_context* curr_ver = version_get_ctx(APP_CURR_VERSION);
+    AppContext* curr_ver = version_get_ctx(APP_CURR_VERSION);
 
     // Allocate tables if they hadn't been allocated yet.
     init_tables();
@@ -290,21 +286,21 @@ int load_app() {
     // No need to keep it around.
     unlink(unique_name);
 
-    app_entry_fn entry_point = dlsym(app_handle, APP_CONFIG_STRUCT->app.entry_point);
+    AppEntryFn entry_point = dlsym(app_handle, APP_CONFIG_STRUCT->app.entry_point);
     if (!entry_point) {
         mlog_error("Couldn't find application entry point. %s", dlerror());
         goto __exit_dont_apply;
 
     }
     // Call app entry.
-    router* r = entry_point();
+    Router* r = entry_point();
     if (!r) {
         mlog_error("null pointer received from entry point");
         goto __exit_dont_apply;
     }
 
     if (r->signature != ROUTER_SIGNATURE) {
-        mlog_error("pointer received from entry point (%p) was not a router ", r);
+        mlog_error("pointer received from entry point (%p) was not a Router ", r);
         goto __exit_dont_apply;
     }
 
@@ -317,7 +313,7 @@ int load_app() {
     RHandle h = NULL;
     int needs = _crefl_needs_reloading(curr_ver, checksum);
     
-    crefl_scope* old_sc = NULL;
+    CReflScope* old_sc = NULL;
     if (curr_ver) old_sc = curr_ver->crefl_data;
 
     // Drop old version
@@ -352,12 +348,12 @@ __exit_dont_apply:
     return 0;
 }
 
-app_context* version_get_ctx(uint32_t ver) {
-    app_context* rte = NULL;
+AppContext* version_get_ctx(uint32_t ver) {
+    AppContext* rte = NULL;
     for (size_t i = 0; i < APP_CTX_TABLE.t.capacity; i++)
     {
         if (APP_CTX_TABLE.occupied[i] == 0) continue;
-        rte = ((app_context**)APP_CTX_TABLE.t.array)[i];
+        rte = ((AppContext**)APP_CTX_TABLE.t.array)[i];
         if (rte->reload_version == ver) {
             return rte;
         }

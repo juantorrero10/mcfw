@@ -41,8 +41,10 @@ REFLECT(struct) {
 
 #define SERVER_HEADER_VAL "mcfw-dev (unstable)"
 
-#define MAX_HEADER_SIZE  8192     // 8kb
-#define MAX_BODY_SIZE 1024 * 1024 // 1 Mb
+#define MAX_HEADERS_SIZE  16 * 1024     // 16KB
+#define RECV_ATT_SIZE 8 * 1024          // 8KB
+#define RECV_BUFF_SIZE 32 * 1024        // 32KB 
+#define MAX_BODY_SIZE 1024 * 1024       // 1 MB
 
 #define TOTAL_HEADER_TIMEOUT 5000
 #define RECV_HEADER_TIMEOUT 1500
@@ -50,7 +52,10 @@ REFLECT(struct) {
 #define TOTAL_BODY_TIMEOUT 30000
 #define RECV_BODY_TIMEOUT 5000
 
+#define SEND_TIMEOUT 2000
+
 // Needs to be a power of 2
-#define PHR_HEADER_BUFF_SIZE 64
+#define MAX_HEADER_COUNT 128
+#define HEADER_HASHTABLE_CAPACITY 2 * MAX_HEADER_COUNT // At worst 50% occupation
 
 #endif // CONFIGS_H_
