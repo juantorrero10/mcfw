@@ -139,8 +139,8 @@ HttpStatusCode req_recv_headers(
         .capacity = MIN(MAX_HEADERS_SIZE, arena->alloc_size),
     };
 
-    struct phr_header temp_phr_headers[MAX_HEADER_COUNT];
-    memset(temp_phr_headers, 0, sizeof(struct phr_header) * MAX_HEADER_COUNT);
+    struct phr_header temp_phr_headers[MAX_REQ_HEADER_COUNT];
+    memset(temp_phr_headers, 0, sizeof(struct phr_header) * MAX_REQ_HEADER_COUNT);
 
     time_t curr_time = time(NULL);
     ssize_t previous_count = 0;

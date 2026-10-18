@@ -1,5 +1,7 @@
 #include <private/mcfw.h>
 
+#define MIN(a, b) ((a) < (b))? (a) : (b)
+
 
 void res_default(_Out_ HttpResponse* res, int client_fd) {
     res->minor_version = 1;
@@ -84,7 +86,25 @@ void res_set_req_headers(HttpResponse* res, bool keep_alive, DStatic req_Range){
     res->range_header = req_Range;
 }
 
-void res_destroy(HttpResponse* res) { sender_destroy(&res->stream); }
+void res_allocate_headers(HttpResponse* res, Arena* arena) {
+    DStatic b = mcfw_arena_alloc(arena, 
+        MIN(
+            arena->alloc_size - arena->used - 16,
+            MAX_RES_HEADER_COUNT * sizeof(struct HttpHeader)
+        ),
+        true
+    );
+    res->response_headers = (struct HttpHeaderArray){
+        .data = b.s_ptr,
+        .count = 0,
+        .capacity = b.capacity / sizeof(struct HttpHeader)
+    };
+}
+
+void res_destroy(HttpResponse* res) { 
+    res->response_headers = (struct HttpHeaderArray){0};
+    sender_destroy(&res->stream); 
+}
 
 void res_send_no_destroy(HttpResponse* res, uint64_t timeout_ms) {
     uint8_t __b[MAX_HEADERS_SIZE];
@@ -134,7 +154,8 @@ _Public_ void __res_set_content_serialize__(HttpResponse* res, HttpContentType t
 
     res->type = t;
     sender_configure_inm(&res->stream, DB_FROM(buff_serialized), t);
-
+    return;
+    
 _ser_error:
     res_set_status_code(res, HTTP_INTERNAL_SERVER_ERROR);
     res_set_content_empty(res);

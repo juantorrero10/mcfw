@@ -32,7 +32,11 @@ DStatic mcfw_arena_alloc(Arena* a, size_t sz, bool align) {
         ALIGN_TO(sz, ALIGN);
     }
     size_t new_used = a->used + sz;
-    assert(new_used <= a->alloc_size);
+    if (new_used > a->alloc_size) {
+        printf("new used: %zu\n", new_used);
+        printf("alloc sz: %zu\n", a->alloc_size);
+        assert(new_used <= a->alloc_size);
+    }
     DStatic ret = DS_FROM(a->p + a->used, 0, new_used - a->used);
     a->used = new_used;
     return ret;

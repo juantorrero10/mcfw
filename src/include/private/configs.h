@@ -55,7 +55,8 @@ REFLECT(struct) {
 #define SEND_TIMEOUT 2000
 
 // Needs to be a power of 2
-#define MAX_HEADER_COUNT 128
-#define HEADER_HASHTABLE_CAPACITY 2 * MAX_HEADER_COUNT // At worst 50% occupation
+#define MAX_REQ_HEADER_COUNT 128
+#define MAX_RES_HEADER_COUNT 64
+#define HEADER_HASHTABLE_CAPACITY 2 * MAX_REQ_HEADER_COUNT // At worst 50% occupation
 
 #endif // CONFIGS_H_

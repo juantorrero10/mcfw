@@ -127,6 +127,9 @@ async(client_handler, int fd) {
             req_get_header_value(&req, DS_LIT("Range"))
         );
 
+        // Allocate the space for the app's custom headers
+        res_allocate_headers(&res, &arena);
+
 
         // Execute handler
         switch (endpoint->respond_with)
