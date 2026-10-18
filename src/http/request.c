@@ -128,7 +128,8 @@ HttpStatusCode req_recv_headers(
     int client_fd,
     HttpRequest* restrict req,
     _Out_ DStatic* restrict headers_buff,
-    _Out_ DStatic* restrict unused_data
+    _Out_ DStatic* restrict unused_data,
+    _Out_ bool* eof
 ) {
     // Expand arena to 16Kb (arena may include unused data from a previous request)
     size_t prev = arena->used;
@@ -168,7 +169,8 @@ __recv_att:
         return HTTP_INTERNAL_SERVER_ERROR;
     }
     else if (sz == 0) {
-        return HTTP_BAD_REQUEST;
+        *eof = true;
+        return HTTP_NO_CONTENT;
     }
     previous_count = headers_buff->count;
     headers_buff->count += sz;
@@ -194,6 +196,7 @@ __parse:
         previous_count
     );
     method.capacity = method.count;
+    req->path.capacity = req->path.count;
     
     // Bad headers
     if (parse_result == -1) {
@@ -229,14 +232,23 @@ __parse:
     req->r_method = _get_req_from_str(&method);
 
     // fill unused_data with the extra read bytes
-    *unused_data = (DStatic){
-        .s_ptr = headers_buff->s_ptr + parse_result,
-        .count = headers_buff->count - parse_result,
-        .capacity = headers_buff->capacity - parse_result
-    };
+    if ((size_t)parse_result == headers_buff->count) {
+        *unused_data = DS_EMPTY();
+    } else {
+        *unused_data = (DStatic){
+            .s_ptr = headers_buff->s_ptr + parse_result,
+            .count = headers_buff->count - parse_result,
+            .capacity = headers_buff->capacity - parse_result
+        };
+    }
 
     // Trim headers_buff count so it strictly represents just the headers
     headers_buff->count = parse_result;
+
+    if (headers_buff->count == 0) {
+        *eof = true;
+        return HTTP_NO_CONTENT;
+    }
 
     return HTTP_OK;
 }
@@ -356,7 +368,6 @@ void req_destroy(HttpRequest* req) {
 _Public_ DStatic req_get_header_value(const HttpRequest* req, DStatic name) {
     size_t n_attempt = 0;
     const struct HttpHeaderHTable* headers = &req->header_table;
-    // SIGSEGV occurrs on get /favicon.ico 
     size_t hashed_idx = dbj2_hash(&name) & (headers->capacity - 1);
     while(n_attempt < headers->n_headers) {
         struct HttpHeader* entry = &headers->table[hashed_idx];

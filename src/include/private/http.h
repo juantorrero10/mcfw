@@ -13,7 +13,8 @@ HttpStatusCode req_recv_headers(
     int client_fd,
     HttpRequest* restrict req,
     _Out_ DStatic* restrict headers_buff,
-    _Out_ DStatic* restrict unused_data
+    _Out_ DStatic* restrict unused_data,
+    _Out_ bool* eof
 );
 HttpStatusCode req_recv_body(
     int client_fd,

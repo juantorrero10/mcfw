@@ -64,17 +64,21 @@ async(client_handler, int fd) {
         if (s_server_has_shutdown) {
             break;
         }
-
+        bool eof = false;
         status = req_recv_headers(
             &arena,
             fd,
             &req,
             &headers_buff, 
-            &unused_data 
+            &unused_data,
+            &eof
         );
         if (status != HTTP_OK) {
             res.code = status;
-            res_send(&res, SEND_TIMEOUT);
+            res.keep_alive = false;
+            if (!eof) {
+                res_send(&res, SEND_TIMEOUT);
+            }
             goto __exit_err;
         }
 
@@ -84,6 +88,7 @@ async(client_handler, int fd) {
         RoutingResult r = router_get_entry(router, &req);
         if (!r.is_ok) {
             res.code = r.data.err;
+            res.keep_alive = false;
             res_send(&res, SEND_TIMEOUT);
             goto __exit_err;
         }
@@ -92,7 +97,7 @@ async(client_handler, int fd) {
         status = req_fill_core_headers(&req, endpoint->expect);
         if (status != HTTP_OK) {
             res.code = status;
-            mlog_warn("2: %d", res.code);
+            res.keep_alive = false;
             res_send(&res, SEND_TIMEOUT);
             goto __exit_err;
         }
@@ -112,7 +117,7 @@ async(client_handler, int fd) {
             }
             if (status != HTTP_OK) {
                 res.code = r.data.err;
-                mlog_warn("3: %d", res.code);
+                res.keep_alive = false;
                 res_send(&res, SEND_TIMEOUT);
                 goto __exit_err;
             }
@@ -138,6 +143,7 @@ async(client_handler, int fd) {
             if (endpoint->handler.method_fptr == NULL) {
                 mlog_error("The handler responsible for route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint->route_str));
                 res.code = HTTP_INTERNAL_SERVER_ERROR;
+                res.keep_alive = false;
                 res_send(&res, SEND_TIMEOUT);
                 goto __exit_err;
             }
@@ -147,6 +153,7 @@ async(client_handler, int fd) {
             if (endpoint->handler.file_name.s_ptr == NULL) {
                 mlog_error("The file returned by route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint->route_str));
                 res.code = HTTP_INTERNAL_SERVER_ERROR;
+                res.keep_alive = false;
                 res_send(&res, SEND_TIMEOUT);
                 goto __exit_err;
             }

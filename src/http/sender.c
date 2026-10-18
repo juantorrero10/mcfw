@@ -7,6 +7,7 @@ char g_cstr_buff[4096];
 
 void sender_default(_Out_ HttpSender* str, int client_fd) {
     str->headers_sent = false;
+    str->total_bytes = 0;
     str->client_fd = client_fd;
     str->mime_flags = 0;
     str->encoding = TRANSFER_INMEDIATE;
@@ -41,7 +42,7 @@ void sender_destroy(HttpSender* str) {
         }
         default: break;
     }
-    str->headers_sent = false;
+    sender_default(str, str->client_fd);
 }
 
 void sender_set_mime_flags(HttpSender* str, HttpContentType t) {
@@ -139,6 +140,7 @@ SendError sender_push(HttpSender* str, uint64_t timeout) {
                     mlog_warn("couldn't send to client: %s", strerror(errno));
                     return STREAMING_IO_ERROR;
                 }
+                str->total_bytes -= sz;
                 str->headers_sent = true;
             }
             // Send file contents

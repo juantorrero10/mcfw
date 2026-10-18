@@ -5,6 +5,7 @@
 
 void res_default(_Out_ HttpResponse* res, int client_fd) {
     res->minor_version = 1;
+    res->response_headers = (struct HttpHeaderArray){0};
     res->code = HTTP_OK;
     res->keep_alive = true;
     res->range_header = DS_EMPTY();
@@ -31,6 +32,10 @@ static void res_collect_headers(HttpResponse* res) {
     // Push essential stuff
     char date_buff[32];
 
+    if (res->stream.total_bytes == 0 && res->code == HTTP_OK) {
+        res->code = HTTP_NO_CONTENT;
+    }
+
     DStatic* buff = &res->stream.resp_headers;
     const char* str_status = refl_enum_get_label((REnum*)CACHED_ENUM_STR_STATUS, res->code);
     const char* cont_type_str = (res->type > 0 && res->type < CONTENT_TYPE_N_MEMB)? (char*)MIME_LUT[res->type].full_str : NULL;
@@ -41,15 +46,17 @@ static void res_collect_headers(HttpResponse* res) {
         "Server: "SERVER_HEADER_VAL"\r\n"
         "Date: %s\r\n"
         "Connection: %s\r\n"
-        "Content-Length: %zu\r\n", 
+        "Accept-Ranges: None\r\n", // temp 
         res->minor_version, res->code, 
         str_status + 5, get_gmt_date(date_buff, 32),
-        (res->minor_version && res->keep_alive)? "keep-alive" : "close", 
-        res->stream.total_bytes
+        (res->minor_version && res->keep_alive)? "keep-alive" : "close"
     );
     if (res->stream.total_bytes > 0) {
         DS_WRITE(*buff, 
-            "Content-Type: %s\r\n", cont_type_str
+            "Content-Length: %zu\r\n"
+            "Content-Type: %s\r\n", 
+            res->stream.total_bytes, 
+            cont_type_str
         );
     }
     DStatic crlf = DS_LIT("\r\n");
@@ -103,6 +110,13 @@ void res_allocate_headers(HttpResponse* res, Arena* arena) {
 
 void res_destroy(HttpResponse* res) { 
     res->response_headers = (struct HttpHeaderArray){0};
+    res->minor_version = 1;
+    res->code = HTTP_OK;
+    res->keep_alive = true;
+    res->range_header = DS_EMPTY();
+    res->signature = HTTP_RES_SIGNATURE;
+    res->type = CONTENT_NOT_SPECIFIED;
+    res->type_string = (DStatic){0};
     sender_destroy(&res->stream); 
 }
 
@@ -225,7 +239,7 @@ _Public_ void res_set_content_file(
         uint8_t buff[1024];
         DStatic ds = DS_FROM(buff, 0, 1024);
         DStatic fn = get_file_name(&file_path);
-        DS_WRITE(ds, "attachment; filename=\"file %.*s\"", DS_ARGS(fn));
+        DS_WRITE(ds, "attachment; filename=\"%.*s\"", DS_ARGS(fn));
         res_add_header(res, DS_LIT("Content-Disposition"), ds);
     }
 }
