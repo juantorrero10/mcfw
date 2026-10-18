@@ -5,7 +5,7 @@ void res_default(_Out_ HttpResponse* res, int client_fd) {
     res->minor_version = 1;
     res->code = HTTP_OK;
     res->keep_alive = true;
-    res->req = NULL;
+    res->range_header = DS_EMPTY();
     res->signature = HTTP_RES_SIGNATURE;
     res->type = CONTENT_NOT_SPECIFIED;
     res->type_string = (DStatic){0};
@@ -77,6 +77,11 @@ void res_send(HttpResponse* res, uint64_t timeout_ms) {
     res->stream.resp_headers = DS_FROM(__b, 0, MAX_HEADERS_SIZE);
     res_collect_headers(res);
     sender_push(&res->stream, timeout_ms);
+}
+
+void res_set_req_headers(HttpResponse* res, bool keep_alive, DStatic req_Range){
+    res->keep_alive = keep_alive;
+    res->range_header = req_Range;
 }
 
 void res_destroy(HttpResponse* res) { sender_destroy(&res->stream); }
@@ -193,7 +198,7 @@ _Public_ void res_set_content_file(
         }
     }
     res->type = t;
-    sender_configure_file(&res->stream, file_path, t, req_get_header_value(res->req, DS_LIT("Range")));
+    sender_configure_file(&res->stream, file_path, t, res->range_header);
 
     if (downloadable) {
         uint8_t buff[1024];

@@ -145,6 +145,10 @@ HttpStatusCode req_recv_headers(
     time_t curr_time = time(NULL);
     ssize_t previous_count = 0;
 
+    if (headers_buff->count > 0) {
+        goto __parse;
+    }
+
 __recv_att:
     void* dst = headers_buff->s_ptr + headers_buff->count;
     size_t ask_for = MIN(RECV_ATT_SIZE, headers_buff->capacity - headers_buff->count);
@@ -174,6 +178,7 @@ __recv_att:
         return HTTP_REQUEST_TIMEOUT;
     }
 
+__parse:
     DStatic method = DS_EMPTY();
     size_t temp_phr_len = sizeof(temp_phr_headers) / sizeof(struct phr_header);
     int parse_result = phr_parse_request(
@@ -246,7 +251,7 @@ HttpStatusCode req_recv_body(
 ) {
     mlog_info("reached body");
     req->content.body = DH_EMPTY();
-    if(req->core_headers.tx_encoding == TRANSFER_INMEDIATE) {
+    if(req->core_headers.tx_encoding != TRANSFER_INMEDIATE) {
         mlog_error("Only inmediate is supported.");
         req->core_headers.tx_encoding = TRANSFER_INMEDIATE;
         return HTTP_INTERNAL_SERVER_ERROR;
@@ -339,6 +344,8 @@ void req_destroy(HttpRequest* req) {
         );
     }
     if (DH_IS_VALID(req->content.body)) DH_FREE(req->content.body);
+    req->content.body = DH_EMPTY();
+    req->was_deserialized = false;
 }
 
 

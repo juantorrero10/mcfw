@@ -94,10 +94,10 @@ struct HttpHeaderArray {
 
 typedef struct __MCFW_HTTP_RESPONSE__ {
     uint32_t signature;
-    const HttpRequest* req;
     HttpStatusCode code;
     HttpContentType type;
     DStatic type_string;
+    DStatic range_header;
     
     int minor_version;
     bool keep_alive;
@@ -123,6 +123,7 @@ void static_file_handler(
 void res_default(_Out_ HttpResponse* r, int client_fd);
 void res_destroy(HttpResponse* res);
 void res_send(HttpResponse* res, uint64_t timeout_ms);
+void res_set_req_headers(HttpResponse* res, bool keep_alive, DStatic req_Range);
 
 #define res_init(fd) ({\
     HttpResponse __res = {0};\

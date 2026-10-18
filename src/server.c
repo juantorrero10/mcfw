@@ -5,6 +5,8 @@
 #define MIN(a, b) ((a) < (b))? (a) : (b)
 
 // Static
+static bool s_server_has_shutdown = false;
+
 // TODO: if asclic changes to multithreading, put a mutex
 static uint64_t s_n_clients = 0;
 _Public_ uint64_t server_get_total_clients() { return s_n_clients; }
@@ -14,8 +16,9 @@ static oneshot_tx_ref_t s_shutdown_oneshot = NULL;
 _Public_ void server_stop() {
     oneshot_tx_t tx = oneshot_take_tx(s_shutdown_oneshot);
     uint64_t payload = 0xDEADBEEF;
-    (void)await_ret(chan_err_t, asc_oneshot_send(tx, (void*)payload));
+    (void)await_ret(chan_err_t, asc_oneshot_send(tx, &payload));
     oneshot_drop_tx(tx);
+    s_server_has_shutdown = true;
 }
 
 // Task local
@@ -56,6 +59,12 @@ async(client_handler, int fd) {
     DStatic unused_data; // Part of the body or next request if pipelined
     
     while(1) {
+        
+        // Dont process anymore requests
+        if (s_server_has_shutdown) {
+            break;
+        }
+
         status = req_recv_headers(
             &arena,
             fd,
@@ -110,7 +119,13 @@ async(client_handler, int fd) {
             // When receiving the body we know how much to read
             // So there will be no unused data
             unused_data = DS_EMPTY();
-        } 
+        }
+
+        // Set some headers from the request because the response needs them
+        res_set_req_headers(&res, 
+            req.core_headers.conn_keep_alive,
+            req_get_header_value(&req, DS_LIT("Range"))
+        );
 
 
         // Execute handler

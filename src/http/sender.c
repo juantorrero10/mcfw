@@ -41,6 +41,7 @@ void sender_destroy(HttpSender* str) {
         }
         default: break;
     }
+    str->headers_sent = false;
 }
 
 void sender_set_mime_flags(HttpSender* str, HttpContentType t) {
@@ -72,8 +73,7 @@ void sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t
     struct stat fs;
     stat(make_cstr(file_path), &fs);
 
-    // TODO: Range header parse and get its size
-    (void)range_header; // Ignore header for now
+    (void)range_header;
     str->total_bytes = fs.st_size;
     str->data.file.last_modified = fs.st_mtime;
     sender_set_mime_flags(str, t);
@@ -85,6 +85,7 @@ void sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t
 
 SendError sender_push(HttpSender* str, uint64_t timeout) {
 
+    mlog_info("Sending to: <%d>", str->client_fd);
     if (str->total_bytes == 0) {
         return STREAMING_OK;
     }
