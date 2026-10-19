@@ -43,11 +43,15 @@ static HttpStatusCode router_get_file_static_dir(
     if (!best_match) return HTTP_NOT_FOUND;
     if (best_match->method != req->r_method) return HTTP_METHOD_NOT_ALLOWED;
 
+    // Dont allow to scape the dir 
+    if (memmem(req->path.s_ptr, req->path.count, "/../", 4)) return HTTP_NOT_FOUND;
+
     // Concat the dir path with the request path - the prefix
     DStatic no_prefix = DS_VIEW((uint8_t*)req->path.s_ptr, best_match->prefix.count, req->path.count);
+
     
-    // Allocate buffer
-    size_t sz_needed = no_prefix.count + best_match->dir_path.count;
+    // Allocate buffer (+ 11 for potential /index.html)
+    size_t sz_needed = no_prefix.count + best_match->dir_path.count + 11;
     // Out of memory
     if (arena->used + sz_needed + 7 > arena->alloc_size) {
         return HTTP_INTERNAL_SERVER_ERROR;
@@ -55,6 +59,21 @@ static HttpStatusCode router_get_file_static_dir(
     *file_path = mcfw_arena_alloc(arena, sz_needed, true);
     dstatic_concat(file_path, &best_match->dir_path);
     dstatic_concat(file_path, &no_prefix);
+
+    struct stat fs;
+    if (stat(make_cstr(*file_path), &fs) < 0) {
+        return HTTP_NOT_FOUND;
+    }
+
+    if (S_ISDIR(fs.st_mode)) {
+        DStatic s;
+        if ((((char*)no_prefix.s_ptr)[no_prefix.count - 1] == '/')) {
+            s = DS_LIT("index.html");
+        } else {
+            s = DS_LIT("/index.html");
+        }
+        dstatic_concat(file_path, &s);
+    }
 
     return HTTP_OK;
 }
@@ -96,7 +115,6 @@ HttpStatusCode router_get_entry(Arena* arena, const Router* r, const HttpRequest
 
 
 Router* router_create(RouterEntry* entries, size_t amount) {
-    size_t entries_cap = 2 * amount;
     DHeap routes_str_pool = DH_NEW(64);
     DHeap typename_str_pool = DH_NEW(64);
     DHeap paths_str_pool = DH_NEW(64);
@@ -150,6 +168,7 @@ Router* router_create(RouterEntry* entries, size_t amount) {
 
 
     }
+    size_t entries_cap = 2 * (amount - n_staticdirs);
     RouterEntry* _entries = calloc(entries_cap, sizeof(RouterEntry));
     struct StaticDir* sdirs = (n_staticdirs == 0)? NULL : calloc(n_staticdirs, sizeof(struct StaticDir));
     size_t sdirs_count = 0;
@@ -167,7 +186,6 @@ Router* router_create(RouterEntry* entries, size_t amount) {
         size_t hashed_idx = (size_t)fnv1a_hash(&old_entry->route_str) % entries_cap;
         while(DS_IS_VALID(_entries[hashed_idx].route_str)) hashed_idx = (hashed_idx + 1) % entries_cap;
         RouterEntry* new_entry = &_entries[hashed_idx];
-        memcpy(new_entry, old_entry, sizeof(RouterEntry));
         
         RouteHandlerKind k = entries[i].handler.kind;
 
@@ -177,6 +195,7 @@ Router* router_create(RouterEntry* entries, size_t amount) {
         word_start_route = word_end_route;
 
         if (k != ROUTER_DIR) {
+            memcpy(new_entry, old_entry, sizeof(RouterEntry));
             new_entry->route_str = route_str;
         }
 
@@ -207,7 +226,7 @@ Router* router_create(RouterEntry* entries, size_t amount) {
     ret->routes_str_pool = routes_str_pool;
     ret->types_str_pool = typename_str_pool;
     ret->paths_str_pool = paths_str_pool;
-    ret->entries = (r_array_t){.array = _entries, .chunk_size = sizeof(RouterEntry), .size = amount, .capacity = entries_cap};
+    ret->entries = (r_array_t){.array = _entries, .chunk_size = sizeof(RouterEntry), .size = amount - n_staticdirs, .capacity = entries_cap };
     ret->static_dirs.data = sdirs;
     ret->static_dirs.amount = n_staticdirs;
     ret->signature = ROUTER_SIGNATURE;

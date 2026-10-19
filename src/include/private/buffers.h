@@ -9,6 +9,7 @@ void dheap_concat(DHeap* v, const DStatic* s) {
     if (v->count + s->count > v->capacity) {
         DH_GROW(v);
     }
+    //SIGSEGV
     memcpy(v->h_ptr + v->count, s->s_ptr, s->count);
     v->count += s->count;
 }

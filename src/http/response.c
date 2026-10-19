@@ -46,16 +46,16 @@ static void res_collect_headers(HttpResponse* res) {
         "Server: "SERVER_HEADER_VAL"\r\n"
         "Date: %s\r\n"
         "Connection: %s\r\n"
-        "Accept-Ranges: None\r\n", // temp 
+        "Accept-Ranges: None\r\n" // temp
+        "Content-Length: %zu\r\n",
         res->minor_version, res->code, 
         str_status + 5, get_gmt_date(date_buff, 32),
-        (res->minor_version && res->keep_alive)? "keep-alive" : "close"
+        (res->minor_version && res->keep_alive)? "keep-alive" : "close",
+        res->stream.total_bytes
     );
     if (res->stream.total_bytes > 0) {
         DS_WRITE(*buff, 
-            "Content-Length: %zu\r\n"
             "Content-Type: %s\r\n", 
-            res->stream.total_bytes, 
             cont_type_str
         );
     }
@@ -229,7 +229,7 @@ _Public_ void res_set_content_file(
         res_destroy(res);
         res_default(res, res->stream.client_fd);
         res->code = HTTP_NOT_FOUND;
-        res->keep_alive = false;
+        // res->keep_alive = false;
         return;
     }
 

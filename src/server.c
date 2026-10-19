@@ -89,7 +89,13 @@ async(client_handler, int fd) {
         status = router_get_entry(&arena, router, &req, &endpoint);
         if (status != HTTP_OK) {
             res.code = status;
-            // Fallback -> Try to find static directory
+            // Keep connections alive for 4xxs from GET, OPTIONS, HEAD and DELETE
+            if (req.r_method < PAYLOAD_METHODS_IDX && 
+                status >= HTTP_REQ_ERRORS_START &&
+                status < HTTP_SERVER_ERRORS_START
+            ) {
+                goto __loop;
+            }
             res.keep_alive = false;
             res_send(&res, SEND_TIMEOUT);
             goto __exit_err;
@@ -166,6 +172,7 @@ async(client_handler, int fd) {
         }
 
         // Send response, cleanup and loop
+__loop:
         bool keep_alive = res.keep_alive;
         res_send(&res, SEND_TIMEOUT);
 

@@ -272,6 +272,9 @@ HttpStatusCode req_recv_body(
     if (content_length > MAX_BODY_SIZE) {
         return HTTP_CONTENT_TOO_LARGE;
     }
+
+    if (content_length == 0) return HTTP_OK;
+
     // Check for Expect: 100-continue
     DStatic expect = req_get_header_value(req, DS_LIT("Expect"));
     if (
@@ -286,7 +289,8 @@ HttpStatusCode req_recv_body(
     DHeap body = DH_NEW(content_length);
     req->content.body = body;
     if (DS_IS_VALID(*unused_data)) {
-        dheap_concat(&body, unused_data);
+        DStatic body_part = DS_VIEW(unused_data->s_ptr, 0, MIN(unused_data->count, content_length));
+        dheap_concat(&body, &body_part);
     }
     time_t starting_time = time(NULL);
 
