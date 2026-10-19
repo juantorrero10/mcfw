@@ -259,9 +259,9 @@ HttpStatusCode req_recv_body(
     HttpRequest* restrict req,
     AppContext* restrict app,
     DStatic crefl_type_name,
-    const DStatic* restrict unused_data
+    const DStatic* restrict unused_data,
+    bool deserialize
 ) {
-    mlog_info("reached body");
     req->content.body = DH_EMPTY();
     if(req->core_headers.tx_encoding != TRANSFER_INMEDIATE) {
         mlog_error("Only inmediate is supported.");
@@ -309,15 +309,18 @@ HttpStatusCode req_recv_body(
     }
     req->content.body = body;
 
-    if (content_length == 0) return HTTP_OK;
-
+    HttpContentType ctype = req->core_headers.content_type; 
     bool needs_deserialization = 
-        MIME_LUT[req->core_headers.content_type].flags 
+        deserialize &&
+        ctype > 0 && ctype < CONTENT_TYPE_N_MEMB && 
+        MIME_LUT[ctype].flags 
         & MIME_FLAG_SERDE;
 
     if (!needs_deserialization) {
         req->was_deserialized = false;
         return HTTP_OK;
+    } else if (content_length == 0) {
+        return HTTP_UNPROCESABLE_CONTENT;
     }
         
     RStruct* s = refl_fetch_struct_from(
@@ -329,11 +332,6 @@ HttpStatusCode req_recv_body(
         return HTTP_INTERNAL_SERVER_ERROR;
     }
     req->content.deserialization.type = s;
-    // TEMP: until other formats supported
-    if (req->core_headers.content_type != CONTENT_JSON) {
-        mlog_error("Only JSON is supported.");
-        return HTTP_INTERNAL_SERVER_ERROR;
-    }
 
     DeserializeResult dr = deserialize_json(s, body.h_ptr, body.count);
     if (dr.st == DR_ERR) {

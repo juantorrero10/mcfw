@@ -34,10 +34,10 @@ void sender_destroy(HttpSender* str) {
             break;
         }
         case TRANSFER_FILE: {
-            if (str->data.file.file_fd > 0) {
-                close(str->data.file.file_fd);
+            if (str->data.file.fd > 0) {
+                close(str->data.file.fd);
             }
-            str->data.file.file_fd = -1;
+            str->data.file.fd = -1;
             break;
         }
         default: break;
@@ -65,19 +65,24 @@ void sender_configure_inm(HttpSender* str, DBuffer db, HttpContentType t) {
 
 
 
-void sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t, DStatic range_header) {
+bool sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t, DStatic range_header) {
     str->encoding = TRANSFER_FILE;  
-    str->data.file.file_fd = -1;
+    str->data.file.fd = -1;
     str->data.file.file_name = file_path;
 
 
     struct stat fs;
-    stat(make_cstr(file_path), &fs);
+    if (stat(make_cstr(file_path), &fs) < 0) {
+        return false;
+    }
 
     (void)range_header;
     str->total_bytes = fs.st_size;
+    str->data.file.fd = asc_open(g_cstr_buff, O_RDONLY, 0);
     str->data.file.last_modified = fs.st_mtime;
     sender_set_mime_flags(str, t);
+
+    return true;
 }
 
 #define ST_ERR_TIMEOUT (SendError){ .data.error_code = HTTP_GONE, .is_ok = false, .timeout = true}
@@ -86,7 +91,6 @@ void sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t
 
 SendError sender_push(HttpSender* str, uint64_t timeout) {
 
-    mlog_info("Sending to: <%d>", str->client_fd);
     if (str->total_bytes == 0) {
         return STREAMING_OK;
     }
@@ -143,15 +147,9 @@ SendError sender_push(HttpSender* str, uint64_t timeout) {
                 str->total_bytes -= sz;
                 str->headers_sent = true;
             }
-            // Send file contents
-            int fd = asc_open(make_cstr(str->data.file.file_name), O_RDONLY, 0);
-            if (fd < 0) {
-                mlog_warn("Couldn't open fd of path %s: %s", g_cstr_buff, strerror(errno));
-                return STREAMING_IO_ERROR;
-            }
             ssize_t sz = io_timeout(
                 ssize_t, 
-                asc_sendfile(str->client_fd, fd, str->total_bytes), 
+                asc_sendfile(str->client_fd, str->data.file.fd, str->total_bytes), 
                 timeout, {
                     return STREAMING_TIMEOUT;
                 }
@@ -159,7 +157,7 @@ SendError sender_push(HttpSender* str, uint64_t timeout) {
             if (sz < 0) {
                 mlog_warn("couldn't send to client: %s", strerror(errno));
                 return STREAMING_IO_ERROR;
-            } 
+            }
             str->total_bytes -= sz;
             break;
         }

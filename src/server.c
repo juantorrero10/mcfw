@@ -85,16 +85,16 @@ async(client_handler, int fd) {
 
         // Get route handle
         Router* router = &ctx->router;
-        RoutingResult r = router_get_entry(router, &req);
-        if (!r.is_ok) {
-            res.code = r.data.err;
+        RouterEntry endpoint = (RouterEntry){0};
+        status = router_get_entry(&arena, router, &req, &endpoint);
+        if (status != HTTP_OK) {
+            res.code = status;
+            // Fallback -> Try to find static directory
             res.keep_alive = false;
             res_send(&res, SEND_TIMEOUT);
             goto __exit_err;
         }
-        RouterEntry* endpoint = r.data.ok_data;
-
-        status = req_fill_core_headers(&req, endpoint->expect);
+        status = req_fill_core_headers(&req, endpoint.expect);
         if (status != HTTP_OK) {
             res.code = status;
             res.keep_alive = false;
@@ -109,14 +109,15 @@ async(client_handler, int fd) {
                 fd, 
                 &req, 
                 ctx, 
-                endpoint->deserialize_typename, 
-                &unused_data
+                endpoint.deserialize_typename, 
+                &unused_data,
+                endpoint.deserialize
             );
             if (status == HTTP_CONTINUE) {
                 goto __recv_body;
             }
             if (status != HTTP_OK) {
-                res.code = r.data.err;
+                res.code = status;
                 res.keep_alive = false;
                 res_send(&res, SEND_TIMEOUT);
                 goto __exit_err;
@@ -135,29 +136,29 @@ async(client_handler, int fd) {
         // Allocate the space for the app's custom headers
         res_allocate_headers(&res, &arena);
 
-
+        
         // Execute handler
-        switch (endpoint->respond_with)
+        switch (endpoint.handler.kind)
         {
         case ROUTER_FUNC:
-            if (endpoint->handler.method_fptr == NULL) {
-                mlog_error("The handler responsible for route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint->route_str));
+            if (endpoint.handler.method_fptr == NULL) {
+                mlog_error("The handler responsible for route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint.route_str));
                 res.code = HTTP_INTERNAL_SERVER_ERROR;
                 res.keep_alive = false;
                 res_send(&res, SEND_TIMEOUT);
                 goto __exit_err;
             }
-            endpoint->handler.method_fptr(&req, &res);
+            endpoint.handler.method_fptr(&req, &res);
             break;
         case ROUTER_FILE:
-            if (endpoint->handler.file_name.s_ptr == NULL) {
-                mlog_error("The file returned by route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint->route_str));
+            if (endpoint.handler.path.s_ptr == NULL) {
+                mlog_error("The file returned by route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint.route_str));
                 res.code = HTTP_INTERNAL_SERVER_ERROR;
                 res.keep_alive = false;
                 res_send(&res, SEND_TIMEOUT);
                 goto __exit_err;
             }
-            static_file_handler(&req, &res, &endpoint->handler.file_name, endpoint->expect);
+            static_file_handler(&req, &res, &endpoint.handler.path, endpoint.expect);
             break;
         
         default:

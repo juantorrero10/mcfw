@@ -120,14 +120,6 @@ void res_destroy(HttpResponse* res) {
     sender_destroy(&res->stream); 
 }
 
-void res_send_no_destroy(HttpResponse* res, uint64_t timeout_ms) {
-    uint8_t __b[MAX_HEADERS_SIZE];
-    res->stream.resp_headers = DS_FROM(__b, 0, MAX_HEADERS_SIZE);
-    res_collect_headers(res);
-    sender_push(&res->stream, timeout_ms);
-}
-
-
 /**
  * @note this is the default state of the content
  */
@@ -233,7 +225,13 @@ _Public_ void res_set_content_file(
         }
     }
     res->type = t;
-    sender_configure_file(&res->stream, file_path, t, res->range_header);
+    if (!sender_configure_file(&res->stream, file_path, t, res->range_header)) {
+        res_destroy(res);
+        res_default(res, res->stream.client_fd);
+        res->code = HTTP_NOT_FOUND;
+        res->keep_alive = false;
+        return;
+    }
 
     if (downloadable) {
         uint8_t buff[1024];

@@ -63,16 +63,16 @@ typedef enum {
 } HttpContentType;
 
 
-#define PAYLOAD_METHODS_IDX 3
+#define PAYLOAD_METHODS_IDX 4
 
 REFLECT(enum) {
     GET,
     DELETE,
     HEAD,
-    POST = 3,
+    OPTIONS,
+    POST = 4,
     PUT,
-    PATCH,
-    OPTIONS
+    PATCH
 } HttpRequestMethod;
 
 typedef enum {

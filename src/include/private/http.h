@@ -21,8 +21,9 @@ HttpStatusCode req_recv_body(
     HttpRequest* restrict req,
     AppContext* restrict app,
     DStatic crefl_type_name,
-    const DStatic* restrict unused_data
-) ;
+    const DStatic* restrict unused_data,
+    bool deserialize
+);
 
 typedef enum {
     ALIGN_HEADER,
@@ -77,7 +78,7 @@ typedef struct {
 
         // File data
         struct {
-            int file_fd;
+            int fd;
             time_t last_modified;
             DStatic range_header;
             DStatic file_name;
@@ -139,7 +140,8 @@ typedef enum {
     STREAMING_OK,
     STREAMING_TIMEOUT,
     STREAMING_OUT_OF_SPACE,
-    STREAMING_IO_ERROR
+    STREAMING_IO_ERROR,
+    STREAMING_FILE_NOT_FOUND
 } SendError;
 
 void sender_default(_Out_ HttpSender* str, int client_fd);
@@ -162,7 +164,7 @@ extern char g_cstr_buff[];
 
 void sender_set_mime_flags(HttpSender* str, HttpContentType t);
 void sender_configure_inm(HttpSender* str, DBuffer db, HttpContentType t);
-void sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t, DStatic range_header);
+bool sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t, DStatic range_header);
 
 
 _Async_ SendError sender_push(HttpSender* s, uint64_t timeout_ms);
