@@ -89,7 +89,7 @@ bool sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t
 #define ST_ERR(CODE) (SendError){ .data.error_code = CODE, .is_ok = false, .timeout = false }
 #define ST_OK (SendError){ .data.vec = NULL, .is_ok = true }
 
-SendError sender_push(HttpSender* str, uint64_t timeout) {
+SendError sender_push(HttpSender* str, uint64_t timeout, bool send_body) {
 
     if (str->total_bytes == 0) {
         return STREAMING_OK;
@@ -111,7 +111,7 @@ SendError sender_push(HttpSender* str, uint64_t timeout) {
                 n_vecs++;
             }
             DBuffer* db = &str->data.inm; 
-            if (db->buff.hp.h_ptr != NULL && db->buff.hp.count > 0) {
+            if (db->buff.hp.h_ptr != NULL && db->buff.hp.count > 0 && send_body) {
                 vecs[n_vecs] = (struct iovec){
                     .iov_base = db->buff.hp.h_ptr,
                     .iov_len = db->buff.hp.count, 
@@ -146,6 +146,9 @@ SendError sender_push(HttpSender* str, uint64_t timeout) {
                 }
                 str->total_bytes -= sz;
                 str->headers_sent = true;
+            }
+            if (!send_body) {
+                break;
             }
             ssize_t sz = io_timeout(
                 ssize_t, 

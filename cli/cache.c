@@ -20,6 +20,8 @@
 
 static inline void make_cache() {
     struct stat st = {0};
+    if (stat(MCFW_DIR, &st) == -1)
+        mkdir(MCFW_DIR, 0700);
     if (stat(CACHE_DIR, &st) == -1)
         mkdir(CACHE_DIR, 0700);
 }

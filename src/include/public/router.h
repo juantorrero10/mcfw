@@ -79,8 +79,12 @@ typedef struct __MCFW__ROUTER__ Router;
 
 
 
-Router* router_create(RouterEntry routes[], size_t amount);
+void __router_set_routes(Router* r, RouterEntry routes[], size_t amount);
 
-#define router_new(entry_arr) router_create(entry_arr, sizeof(entry_arr) / sizeof(RouterEntry))
+#define router_set_routes(_rout_ptr, ...) do {\
+    RouterEntry __rarr[] = { __VA_ARGS__ }; \
+    __router_set_routes(_rout_ptr, __rarr, sizeof(__rarr) / sizeof(RouterEntry)); \
+} while (0)
+
 
 #endif // ROUTER_H_

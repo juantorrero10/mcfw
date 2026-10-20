@@ -22,16 +22,17 @@
 
 
 #define CC "gcc"
-#define DEPENDENCIES_FOLDER "../dependencies"
-#define CREFL_GEN DEPENDENCIES_FOLDER"/crefl/crefl_gen"
-#define ASCLIB_STATIC "asclib/libasclib.a"
+#define INCLUDE_FOLDER MCFW_DIR"/include"
+#define DEPENDENCIES_FOLDER MCFW_DIR"/lib"
+#define CREFL_GEN DEPENDENCIES_FOLDER"/crefl_gen"
+#define ASCLIB_STATIC "libasclib.a"
 #define TEMP_OUTPUT   CACHE_DIR"/__tempapp.so"
-#define TARGET_SO     ".host/libapp.so"
+#define TARGET_SO     MCFW_DIR"/bin/libapp.so"
 #define COMP_MARK     CACHE_DIR"/comp_mark"
 #define PYTHON        "python3"
 
 //                                              ⌄⌄ replaced by config
-char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"DEPENDENCIES_FOLDER, "-m64", "-MMD", "-MP", "-fPIC", "-o"};
+char* static_flags[] = {NULL, NULL, NULL,"-std=c00", "-I"INCLUDE_FOLDER, "-m64", "-MMD", "-MP", "-fPIC", "-o"};
 
 #define STATIC_AMNT sizeof(static_flags) / sizeof(char*)
 

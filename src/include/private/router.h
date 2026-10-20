@@ -14,18 +14,21 @@ struct StaticDir {
 };
 
 typedef struct __MCFW__ROUTER__ {
-    DHeap routes_str_pool;
-    DHeap types_str_pool;
-    DHeap paths_str_pool;
-    uint32_t signature;
-    DYN_ARRAY(RouterEntry) entries;
-    struct {
+    struct StaticDirArray {
         struct StaticDir* data;
         size_t amount;
     } static_dirs;
+    DHeap routes_str_pool;
+    DHeap types_str_pool;
+    DHeap paths_str_pool;
+    struct RouterHashMap {
+        RouterEntry* data;
+        size_t amount;
+        size_t capacity;
+    } entries;
 } Router;
 
-typedef Router* (*AppEntryFn)(void);
+typedef void(*AppEntryFn)(Router* );
  
 void router_destroy(Router* r);
 HttpStatusCode router_get_entry(Arena* arena, const Router* r, const HttpRequest* req, _Out_ RouterEntry* out_re);

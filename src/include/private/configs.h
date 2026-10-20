@@ -32,11 +32,12 @@ REFLECT(struct) {
 
 #define APP_CONFIG_TYPE "app_config"
 #define APP_CONFIG_FILE "app_config.json"
-#define HOST_FOLDER     ".host"
+#define MCFW_WDIR       ".mcfw"
+#define HOST_FOLDER     MCFW_WDIR"/bin"
 #define APP_LIBS_PREFIX          HOST_FOLDER"/libapp"
 #define APP_SO                   APP_LIBS_PREFIX".so"
 #define COMPILATION_RED_HERRING HOST_FOLDER"/dont_reload"
-#define CREFL_FOLDER    ".crefl"
+#define CREFL_FOLDER    MCFW_WDIR"/crefl"
 #define CREFL_APP_FILE CREFL_FOLDER"/app_types.crefl"
 
 #define SERVER_HEADER_VAL "mcfw-dev (unstable)"
@@ -47,12 +48,14 @@ REFLECT(struct) {
 #define MAX_BODY_SIZE 1024 * 1024       // 1 MB
 
 #define TOTAL_HEADER_TIMEOUT 5000
-#define RECV_HEADER_TIMEOUT 1500
+#define RECV_HEADER_TIMEOUT 2000
 
 #define TOTAL_BODY_TIMEOUT 30000
 #define RECV_BODY_TIMEOUT 5000
 
 #define SEND_TIMEOUT 2000
+
+#define MAX_REQ_PER_CONNECTION 100
 
 // Needs to be a power of 2
 #define MAX_REQ_HEADER_COUNT 128

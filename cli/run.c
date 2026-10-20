@@ -9,9 +9,9 @@
 #include "cli.h"
 #include "log.h"
 
-#define MCFW_BINARY ".host/.mcfw_server"
+#define MCFW_BINARY MCFW_DIR"/bin/.mcfw_server"
 
-#define COMP_RED_HERRING ".host/dont_reload"
+#define COMP_RED_HERRING MCFW_DIR"/.host/dont_reload"
 
 REFLECT(enum) {
     SIGHUP           =1,

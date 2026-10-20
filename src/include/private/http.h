@@ -95,15 +95,16 @@ struct HttpHeaderArray {
 };
 
 typedef struct __MCFW_HTTP_RESPONSE__ {
+    bool keep_alive;
+    bool send_body;
     uint32_t signature;
+    int minor_version;
     HttpStatusCode code;
     HttpContentType type;
     DStatic type_string;
     DStatic range_header;
-    
-    int minor_version;
-    bool keep_alive;
     struct HttpHeaderArray response_headers;
+    
     
     HttpSender stream;
 } HttpResponse;
@@ -167,7 +168,7 @@ void sender_configure_inm(HttpSender* str, DBuffer db, HttpContentType t);
 bool sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t, DStatic range_header);
 
 
-_Async_ SendError sender_push(HttpSender* s, uint64_t timeout_ms);
+_Async_ SendError sender_push(HttpSender* str, uint64_t timeout, bool send_body);
 
 
 #endif // PRIVATE_HTTP_H_

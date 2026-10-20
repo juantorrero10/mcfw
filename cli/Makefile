@@ -1,15 +1,15 @@
 TARGET_CLI  = mcfw 		 	# CLI
 
-
-INCLUDE = -I../dependencies
+OUT_ENV = ../app
+MCFW_WDIR = $(OUT_ENV)/.mcfw
+INCLUDE = -I$(MCFW_WDIR)/include
+LIB = $(MCFW_WDIR)/lib
 
 CC = gcc
 CFLAGS_CLI   = -Wall -Wextra -Werror -std=c17 -m64 -MMD -MP -g $(INCLUDE) -O2 -Wno-maybe-uninitialized
 
-LIBS = -L../dependencies -l:crefl/libcrefl.a
+LIBS = -L$(LIB) -l:libcrefl.a
 
-
-OUT_ENV 	= ../app
 OUT_OBJ 	= ../build/cli/obj
 
 #verbose flag
@@ -26,9 +26,9 @@ CLI_C := $(shell find $(CLI_SRC) -name "*.c" ! -path "$(CLI_SRC)/templates/*")
 CLI_O := $(patsubst $(CLI_SRC)/%.c,$(OUT_OBJ)/%.o,$(CLI_C))
 
 # -------------- CREFL STUFF -------------------
-CREFL_FOLDER	= $(OUT_ENV)/.crefl
+CREFL_FOLDER	= $(MCFW_WDIR)/crefl
 CRELF_FILE  = $(CREFL_FOLDER)/cli_types.crefl
-PY_GEN      = python3 ../dependencies/crefl/crefl_gen
+PY_GEN      = python3 $(LIB)/crefl_gen
 PY_INPUT    = $(shell find $(CLI_SRC) -name "*.h") $(shell find $(CLI_SRC) -name "*.c")
 CFLAGS_CLI += -DCLI_CREFL=\"$(CRELF_FILE)\"
 
@@ -54,14 +54,14 @@ $(OUT_OBJ)/%.o: $(CLI_SRC)/%.c | $(OUT_OBJ)
 	@echo "$(GREEN)(+) $@.$(WHITE)"
 
 # == LINK ==
-$(BIN_CLI): $(CRELF_FILE) $(CLI_O) | $(OUT_ENV)
+$(BIN_CLI): $(CRELF_FILE) $(CLI_O) | $(MCFW_WDIR)
 	$(Q)$(CC) $(CFLAGS_CLI) -o $@ $(CLI_O) $(LIBS)
 	@echo "$(PURPLE)(+) $@.$(WHITE)"
 
-$(CRELF_FILE): $(PY_INPUT) | $(CREFL_FOLDER) $(OUT_ENV)/.host
+$(CRELF_FILE): $(PY_INPUT) | $(CREFL_FOLDER) $(MCFW_WDIR)/bin
 	$(Q)$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
 
-$(OUT_ENV) $(CREFL_FOLDER) $(OUT_ENV)./host $(OUT_OBJ):
+$(OUT_ENV) $(MCFW_WDIR) $(CREFL_FOLDER) $(MCFW_WDIR)./bin $(OUT_OBJ):
 	@echo "$(CYAN)(+) $@.$(WHITE)"
 	@mkdir -p $@
 

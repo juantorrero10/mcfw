@@ -176,17 +176,14 @@ static void _free_tables_exit() {
 }
 
 static void _register_context(Router* r, void* dl_handle, CReflScope* c_data) {
-    Router rout = (r != NULL)? *r : (Router){0};
-
     AppContext c = {
-        .router = rout,
+        .router = *r,
         .dl_handle = dl_handle,
         .crefl_data = c_data,
         .ref_count = 0,
         .at_index = (size_t)-1,
         .reload_version = APP_CURR_VERSION 
     };
-    free(r);
     c_data->c_ctx_ref_count++;
     AppContext* malloced = calloc(sizeof(AppContext), 1);
     *malloced = c;
@@ -293,17 +290,8 @@ int load_app() {
 
     }
     // Call app entry.
-    Router* r = entry_point();
-    if (!r) {
-        mlog_error("null pointer received from entry point");
-        goto __exit_dont_apply;
-    }
-
-    if (r->signature != ROUTER_SIGNATURE) {
-        mlog_error("pointer received from entry point (%p) was not a Router ", r);
-        goto __exit_dont_apply;
-    }
-
+    Router r = {0};
+    entry_point(&r);
 
     // Advance version.
     APP_CURR_VERSION = next_version;
@@ -329,13 +317,13 @@ int load_app() {
 
     if (!needs) {
         assert(old_sc);
-        _register_context(r, app_handle, old_sc);
+        _register_context(&r, app_handle, old_sc);
         return 1;
     }
 
     h = refl_load_metadata_to(CREFL_APP_FILE);
     assert(h);
-    _register_context(r, app_handle, _register_scope(h, checksum));
+    _register_context(&r, app_handle, _register_scope(h, checksum));
     if (old_sc && old_sc->c_ctx_ref_count == 0) {
         assert(CREFL_SCOPES_TABLE.occupied[old_sc->at_index] != 0);
         _drop_scope(old_sc);

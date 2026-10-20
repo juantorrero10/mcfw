@@ -72,10 +72,11 @@ extern arg_flags g_flags;
 
 #define APP_CONFIG_TYPE "app_config"
 #define APP_CONFIG_FILE "app_config.json"
-#define CACHE_DIR "._ccomp_cache__"
+#define MCFW_DIR ".mcfw"
+#define CACHE_DIR MCFW_DIR"/._ccomp_cache__"
 #define CHECKSUM_FILE CACHE_DIR"/checksum"
-#define COMPILATION_RED_HERRING "./.host/dont_reload"
-#define CRELF_FOLDER ".crefl"
+#define COMPILATION_RED_HERRING MCFW_DIR"/bin/dont_reload"
+#define CRELF_FOLDER MCFW_DIR"/crefl"
 #define APP_CREFL_FILE CRELF_FOLDER"/app_types.crefl"
 
 #define COMPERR_REDIRECT "comp-out.log"

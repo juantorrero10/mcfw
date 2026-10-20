@@ -1,26 +1,29 @@
 TARGET_HOST = .mcfw_server	# Server host binary
 
 
-DEPS_DIR = ../dependencies
 VENDOR_DIR = vendor 
 INCLUDE_DIR = include
 
+# --------- OUT FOLDERS ------------------
+OUT_ENV      	= ../app/.mcfw
+OUT_ENV_HOST	= $(OUT_ENV)/bin
+OUT_ENV_INC   	= $(OUT_ENV)/include
+OUT_ENV_LIB		= $(OUT_ENV)/lib
+CREFL_FOLDER	= $(OUT_ENV)/crefl
+OUT_OBJ 		= ../build/obj/host
+
 
 CC = gcc
-CFLAGS_HOST_D = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE_DIR) -I$(DEPS_DIR) -I$(VENDOR_DIR) -m64 -MMD -MP -g 
-CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE_DIR) -I$(DEPS_DIR) -I$(VENDOR_DIR) -m64 -MMD -MP -g -O2
+CFLAGS_HOST_D = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE_DIR) -I$(OUT_ENV_INC) -I$(VENDOR_DIR) -m64 -MMD -MP -g 
+CFLAGS_HOST_R = -Wall -Wextra -Werror -std=c17 -I$(INCLUDE_DIR) -I$(OUT_ENV_INC) -I$(VENDOR_DIR) -m64 -MMD -MP -g -O2
 CFLAGS = $(CFLAGS_HOST_D)
 
-LIBS = -L$(DEPS_DIR) -Wl,--whole-archive -l:crefl/libcrefl.a \
-	 -l:asclib/libasclib.a -Wl,--no-whole-archive \
+LIBS = -L$(OUT_ENV_LIB) -Wl,--whole-archive -l:libcrefl.a \
+	 -l:libasclib.a -Wl,--no-whole-archive \
 	-rdynamic -ldl -lpthread
 
 
-# --------- OUT FOLDERS ------------------
-OUT_ENV      	= ../app
-OUT_ENV_HOST	= $(OUT_ENV)/.host
-CREFL_FOLDER	= $(OUT_ENV)/.crefl
-OUT_OBJ 		= ../build/obj/host
+
 
 # ------ HOST OBJECTS ---------------
 HOST_SRC = .
@@ -29,7 +32,7 @@ HOST_O := $(patsubst $(HOST_SRC)/%.c,$(OUT_OBJ)/%.o,$(HOST_C))
 
 # -------------- CREFL STUFF -------------------
 CRELF_FILE  	= $(CREFL_FOLDER)/host_types.crefl
-PY_GEN      	= python3 ../dependencies/crefl/crefl_gen
+PY_GEN      	= python3 $(OUT_ENV_LIB)/crefl_gen
 PY_INPUT   	 	= $(shell find $(HOST_SRC) -name "*.h") $(shell find $(HOST_SRC) -name "*.c")
 CFLAGS_HOST_D 	+= -DHOST_CREFL=\"$(CRELF_FILE)\"
 CFLAGS_HOST_R 	+= -DHOST_CREFL=\"$(CRELF_FILE)\"
@@ -59,8 +62,8 @@ $(OUT_OBJ)/gperf/str_to_content_type.o: CFLAGS += -Wno-missing-field-initializer
 
 all: $(BIN_HOST)
 all:
-	@mkdir -p $(DEPS_DIR)/mcfw
-	@cp -r $(INCLUDE_DIR)/public/* $(DEPS_DIR)/mcfw
+	@mkdir -p $(OUT_ENV_INC)/mcfw
+	@cp -r $(INCLUDE_DIR)/public/* $(OUT_ENV_INC)/mcfw
 
 # == COMPILE ==== 
 $(OUT_OBJ)/%.o: $(HOST_SRC)/%.c | $(OUT_OBJ)

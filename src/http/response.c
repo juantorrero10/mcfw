@@ -8,6 +8,7 @@ void res_default(_Out_ HttpResponse* res, int client_fd) {
     res->response_headers = (struct HttpHeaderArray){0};
     res->code = HTTP_OK;
     res->keep_alive = true;
+    res->send_body = true;
     res->range_header = DS_EMPTY();
     res->signature = HTTP_RES_SIGNATURE;
     res->type = CONTENT_NOT_SPECIFIED;
@@ -59,6 +60,12 @@ static void res_collect_headers(HttpResponse* res) {
             cont_type_str
         );
     }
+    if (res->keep_alive == true) {
+        DS_WRITE(*buff, 
+            "Keep-Alive: timeout=%d, max=%d\r\n",
+            RECV_HEADER_TIMEOUT / 1000, MAX_REQ_PER_CONNECTION 
+        );
+    }
     DStatic crlf = DS_LIT("\r\n");
     DStatic sep = DS_LIT(": ");
 
@@ -85,7 +92,7 @@ void res_send(HttpResponse* res, uint64_t timeout_ms) {
     uint8_t __b[MAX_HEADERS_SIZE];
     res->stream.resp_headers = DS_FROM(__b, 0, MAX_HEADERS_SIZE);
     res_collect_headers(res);
-    sender_push(&res->stream, timeout_ms);
+    sender_push(&res->stream, timeout_ms, res->send_body);
 }
 
 void res_set_req_headers(HttpResponse* res, bool keep_alive, DStatic req_Range){
@@ -113,6 +120,7 @@ void res_destroy(HttpResponse* res) {
     res->minor_version = 1;
     res->code = HTTP_OK;
     res->keep_alive = true;
+    res->send_body = true;
     res->range_header = DS_EMPTY();
     res->signature = HTTP_RES_SIGNATURE;
     res->type = CONTENT_NOT_SPECIFIED;

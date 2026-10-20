@@ -31,7 +31,7 @@ static HttpStatusCode router_get_file_static_dir(
         
         if (req->path.count < s->prefix.count) continue; 
 
-        if (memcmp(req->path.s_ptr, s->prefix.s_ptr, s->prefix.count) == 0) {
+        if (strncasecmp(req->path.s_ptr, s->prefix.s_ptr, s->prefix.count) == 0) {
             if (s->prefix.count > max_prefix_len) {
                 // Track longest one
                 max_prefix_len = s->prefix.count;
@@ -41,7 +41,12 @@ static HttpStatusCode router_get_file_static_dir(
     }
 
     if (!best_match) return HTTP_NOT_FOUND;
-    if (best_match->method != req->r_method) return HTTP_METHOD_NOT_ALLOWED;
+    
+    if (best_match->method != req->r_method && 
+        best_match->method != GET && 
+        req->r_method != HEAD
+    ) 
+        return HTTP_METHOD_NOT_ALLOWED;
 
     // Dont allow to scape the dir 
     if (memmem(req->path.s_ptr, req->path.count, "/../", 4)) return HTTP_NOT_FOUND;
@@ -87,15 +92,17 @@ HttpStatusCode router_get_entry(Arena* arena, const Router* r, const HttpRequest
     int found_same_path = 0;
     while(n_attempt < r->entries.capacity)
     {
-        RouterEntry* re = (RouterEntry*)r->entries.array + hashed_idx;
+        RouterEntry* re = &r->entries.data[hashed_idx];
         hashed_idx++;
         hashed_idx %= r->entries.capacity;
         n_attempt++;
         if (!DS_IS_VALID(re->route_str)) break;
         if (DS_COMP_CASEIGN(re->route_str, req->path)) continue;
         if (re->r_method != (HttpRequestMethod)req->r_method) {
-            found_same_path = 1;
-            continue;
+            if (re->r_method != GET || req->r_method != HEAD) {
+                found_same_path = 1;
+                continue;
+            }
         }
         memcpy(out_re, re, sizeof(RouterEntry));
         return HTTP_OK;
@@ -114,34 +121,28 @@ HttpStatusCode router_get_entry(Arena* arena, const Router* r, const HttpRequest
 
 
 
-Router* router_create(RouterEntry* entries, size_t amount) {
-    DHeap routes_str_pool = DH_NEW(64);
-    DHeap typename_str_pool = DH_NEW(64);
-    DHeap paths_str_pool = DH_NEW(64);
+_Public_ void __router_set_routes(Router* r, RouterEntry* entries, size_t amount) {
+    r->routes_str_pool = DH_NEW(64);
+    r->paths_str_pool = DH_NEW(64);
+    r->types_str_pool = DH_NEW(64);
     size_t n_staticdirs = 0;
     for (size_t i = 0; i < amount; i++)
     {
         // Push route string
         if (!entries[i].route_str.s_ptr) { 
             mlog_error("Expected route path but received a null string on route idx: %zu", i);
-            DH_FREE(routes_str_pool);
-            DH_FREE(typename_str_pool);
-            DH_FREE(paths_str_pool);
-            return NULL;
+            goto err;
         }
-        dheap_concat(&routes_str_pool, &entries[i].route_str);
+        dheap_concat(&r->routes_str_pool, &entries[i].route_str);
 
         // Push file/dir path 
         RouteHandlerKind k = entries[i].handler.kind;
         if (k == ROUTER_FILE || k == ROUTER_DIR) {
             if (!DS_IS_VALID(entries[i].handler.path)) {
                 mlog_error("Expected file/dir path but received a null string on route idx: %zu", i);
-                DH_FREE(routes_str_pool);
-                DH_FREE(typename_str_pool);
-                DH_FREE(paths_str_pool);
-                return NULL;
+                goto err;
             }
-            dheap_concat(&paths_str_pool, &entries[i].handler.path);
+            dheap_concat(&r->paths_str_pool, &entries[i].handler.path);
 
             if (k == ROUTER_DIR) {
                 // Count static dirs
@@ -149,7 +150,7 @@ Router* router_create(RouterEntry* entries, size_t amount) {
                 // Append / if not there
                 if (((char*)(entries[i].handler.path.s_ptr))[entries[i].handler.path.count - 1] != '/') {
                     DStatic b = DS_LIT("/");
-                    dheap_concat(&paths_str_pool, &b);
+                    dheap_concat(&r->paths_str_pool, &b);
                     entries[i].handler.path.count++;
                 }
             }
@@ -159,12 +160,9 @@ Router* router_create(RouterEntry* entries, size_t amount) {
         if (!(MIME_LUT[entries[i].expect].flags & MIME_FLAG_SERDE)) continue;
         if (!entries[i].deserialize_typename.s_ptr) { 
             mlog_error("Expected type name but received a null string on route idx: %zu", i);
-            DH_FREE(routes_str_pool);
-            DH_FREE(typename_str_pool);
-            DH_FREE(paths_str_pool);
-            return NULL; 
+            goto err;
         }
-        dheap_concat(&typename_str_pool, &entries[i].deserialize_typename);
+        dheap_concat(&r->types_str_pool, &entries[i].deserialize_typename);
 
 
     }
@@ -191,7 +189,7 @@ Router* router_create(RouterEntry* entries, size_t amount) {
 
         // Get str offsets for the route
         word_end_route += old_entry->route_str.count;
-        DStatic route_str = DS_VIEW(routes_str_pool.h_ptr, word_start_route, word_end_route);
+        DStatic route_str = DS_VIEW(r->routes_str_pool.h_ptr, word_start_route, word_end_route);
         word_start_route = word_end_route;
 
         if (k != ROUTER_DIR) {
@@ -202,7 +200,7 @@ Router* router_create(RouterEntry* entries, size_t amount) {
         // Get str offsets for the path
         if (k == ROUTER_FILE || k == ROUTER_DIR) {
             word_end_path += old_entry->handler.path.count;
-            DStatic path = DS_VIEW(paths_str_pool.h_ptr, word_start_path, word_end_path);
+            DStatic path = DS_VIEW(r->paths_str_pool.h_ptr, word_start_path, word_end_path);
             if (k == ROUTER_FILE) {
                 new_entry->handler.path = path;
             } else {
@@ -217,27 +215,35 @@ Router* router_create(RouterEntry* entries, size_t amount) {
         // Get for the typename if necesary
         if (!(MIME_LUT[entries[i].expect].flags & MIME_FLAG_SERDE)) continue;
         word_end_typename += entries[i].deserialize_typename.count;
-        new_entry->deserialize_typename = DS_VIEW(typename_str_pool.h_ptr, word_start_typename, word_end_typename);
+        new_entry->deserialize_typename = DS_VIEW(r->types_str_pool.h_ptr, word_start_typename, word_end_typename);
         word_start_typename = word_end_typename; 
     }
 
+    r->entries = (struct RouterHashMap){
+        .data = _entries,
+        .amount = amount - sdirs_count,
+        .capacity = entries_cap
+    };
 
-    Router* ret = malloc(sizeof(Router));
-    ret->routes_str_pool = routes_str_pool;
-    ret->types_str_pool = typename_str_pool;
-    ret->paths_str_pool = paths_str_pool;
-    ret->entries = (r_array_t){.array = _entries, .chunk_size = sizeof(RouterEntry), .size = amount - n_staticdirs, .capacity = entries_cap };
-    ret->static_dirs.data = sdirs;
-    ret->static_dirs.amount = n_staticdirs;
-    ret->signature = ROUTER_SIGNATURE;
-    return ret;
+    r->static_dirs = (struct StaticDirArray){
+        .data = sdirs,
+        .amount = sdirs_count
+    };
+    return;
+
+err:
+    DH_FREE(r->paths_str_pool);
+    r->paths_str_pool = DH_EMPTY();
+    DH_FREE(r->types_str_pool);
+    r->types_str_pool = DH_EMPTY();
+    DH_FREE(r->routes_str_pool);
+    r->routes_str_pool = DH_EMPTY();
 }
 
 void router_destroy(Router* r) {
-    if (r->signature != ROUTER_SIGNATURE) return;
     DH_FREE(r->routes_str_pool);
     DH_FREE(r->types_str_pool);
     DH_FREE(r->paths_str_pool);
-    free(r->entries.array);
+    free(r->entries.data);
     free(r->static_dirs.data);
 }

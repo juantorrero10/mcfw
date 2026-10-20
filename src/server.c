@@ -57,6 +57,8 @@ async(client_handler, int fd) {
     // buffers init
     DStatic headers_buff;
     DStatic unused_data; // Part of the body or next request if pipelined
+
+    int64_t n_requests = 0;
     
     while(1) {
         
@@ -100,6 +102,11 @@ async(client_handler, int fd) {
             res_send(&res, SEND_TIMEOUT);
             goto __exit_err;
         }
+
+        if (req.r_method == HEAD && endpoint.r_method == GET) {
+            res.send_body = false;
+        }
+
         status = req_fill_core_headers(&req, endpoint.expect);
         if (status != HTTP_OK) {
             res.code = status;
@@ -173,11 +180,14 @@ async(client_handler, int fd) {
 
         // Send response, cleanup and loop
 __loop:
-        bool keep_alive = res.keep_alive;
+        n_requests++;
+        if (n_requests >= MAX_REQ_PER_CONNECTION) {
+            res.keep_alive = false;
+        }
         res_send(&res, SEND_TIMEOUT);
 
         mcfw_arena_reset(&arena);
-        if (!keep_alive) break;
+        if (!res.keep_alive) break;
         // Move data that we have read accidentally to the start of the buffer.
         if (DS_IS_VALID(unused_data)) {
             mcfw_arena_alloc(&arena, unused_data.count, true);

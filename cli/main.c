@@ -95,6 +95,10 @@ int main(int argc, const char** argv) {
         _exit(1);
     }
 
+    if (fptr == cmd_init) {
+        return cmd_init();
+    }
+
     refl_load_metadata(CLI_CREFL);
     refl_threadlocal_init(1);
 

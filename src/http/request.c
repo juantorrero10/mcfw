@@ -273,8 +273,6 @@ HttpStatusCode req_recv_body(
         return HTTP_CONTENT_TOO_LARGE;
     }
 
-    if (content_length == 0) return HTTP_OK;
-
     // Check for Expect: 100-continue
     DStatic expect = req_get_header_value(req, DS_LIT("Expect"));
     if (
@@ -294,7 +292,7 @@ HttpStatusCode req_recv_body(
     }
     time_t starting_time = time(NULL);
 
-    while (body.count > body.capacity) {
+    while (body.count < body.capacity) {
         void* dst = body.h_ptr + body.count;
         size_t ask_for = MIN(RECV_ATT_SIZE, body.capacity - body.count); 
         ssize_t chunk_sz = io_timeout(ssize_t, asc_recv(client_fd, dst, ask_for), RECV_BODY_TIMEOUT, {
