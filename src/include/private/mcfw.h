@@ -3,10 +3,26 @@
 
 #define _GNU_SOURCE
 
+/**
+ * @brief This function is accesible to the user application.
+ */
 #define _Public_
+/**
+ * @brief This parameter is optional and will be explicitly checked if its NULL.
+ * @note In absense of this marker, argument will probably triggrer as SIGSEGV if passed NULL.
+ */
 #define _Opt_
+/**
+ * @brief This parameter is passed as a pointer to be written to by callee.
+ */
 #define _Out_
+/**
+ * @brief This paramater would be read from and written to by callee.
+ */
 #define _In_Out_
+/**
+ * @brief This function spawns an asyncronous task and will yield at some point.
+ */
 #define _Async_
 
 #include <string.h>

@@ -181,7 +181,7 @@ async(client_handler, int fd) {
         // Send response, cleanup and loop
 __loop:
         n_requests++;
-        if (n_requests >= MAX_REQ_PER_CONNECTION) {
+        if (n_requests >= MAX_REQ_PER_CONNECTION || s_server_has_shutdown) {
             res.keep_alive = false;
         }
         res_send(&res, SEND_TIMEOUT);

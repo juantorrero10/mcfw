@@ -43,8 +43,7 @@ static HttpStatusCode router_get_file_static_dir(
     if (!best_match) return HTTP_NOT_FOUND;
     
     if (best_match->method != req->r_method && 
-        best_match->method != GET && 
-        req->r_method != HEAD
+        (best_match->method != GET || req->r_method != HEAD)
     ) 
         return HTTP_METHOD_NOT_ALLOWED;
 

@@ -9,8 +9,15 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-#define _Out_
+/**
+ * @brief This parameter is optional and will be explicitly checked if its NULL.
+ * @note In absense of this marker, argument will probably triggrer as SIGSEGV if passed NULL.
+ */
 #define _Opt_
+/**
+ * @brief This parameter is passed as a pointer to be written to by callee.
+ */
+#define _Out_
 
 
 typedef struct {
