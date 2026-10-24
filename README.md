@@ -106,7 +106,7 @@ void app_entry(Router* r) {
 ```
 
 ### 3. String and Buffer Management
-MCFW uses a specialized set of types defined in `<mcfw/buffers.h>` to manage memory safely and avoid standard C string overhead:
+MCFW uses a specialized set of types defined in `<mcfw/buffers.h>` to manage memory safely and avoid C's null terminated strings:
 *   **`DStatic`**: Represents a buffer that is either not owned or doesn't require to be freed. Often initialized with the `DS_...` macros.
 *   **`DHeap`**: An owned, heap-allocated string or buffer. Often initialized with the `DH_...` macros.
 *   **`DBuffer`**: A generalitzation of the of the above types through the macro `DB_FROM(buff)`, If a functions asks for a DBuffer it means that it will try to take ownership of the memory so **DON'T TRY TO FREE IT**.
@@ -115,7 +115,7 @@ MCFW uses a specialized set of types defined in `<mcfw/buffers.h>` to manage mem
 #include <mcfw/http.h>
 
 void example_static(const HttpRequest* req, HttpResponse* res) {
-    // DS_LIT creates a DStatic view at compile time without allocation
+    // DS_LIT creates a DStatic pointing to the string literal.
     DStatic greeting = DS_LIT("<h1>Static buff!</h1>");
     // res_set_content macro converts DStatic to DBuffer automatically
     // the response knows not to free it.
@@ -150,13 +150,11 @@ REFLECT(struct) {
 } bug_report_post_t;
 
 REFLECT(struct) {
-	int32_t id;
-	const char* status;
+    int32_t id;
+    const char* status;
 } bug_report_response_t;
 
 void bug_report(const HttpRequest* req, HttpResponse* res) {
-    RHandle* h = server_get_crefl_handle();
-    
     // Retrieve the automatically deserialized request body
     bug_report_post_t* bug = req_get_deserialized_body(req);
     
@@ -176,6 +174,7 @@ void bug_report(const HttpRequest* req, HttpResponse* res) {
 
 void app_entry(Router* r) {
     router_set_routes(r,
+        // Setup the endpoiny
         ROUTE_DESERIALIZE(POST, "/api/report", HANDLER_FN(bug_report), CONTENT_JSON, bug_report_post_t)
     );
 }
