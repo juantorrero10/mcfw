@@ -119,7 +119,7 @@ const struct mime_ext_map * mime_ext_lookup (const char *str, size_t len);
 void static_file_handler(
     const HttpRequest* req,
     HttpResponse* res,      
-    DStatic* file_path,
+    const DStatic* file_path,
     HttpContentType router_expect
 );
 

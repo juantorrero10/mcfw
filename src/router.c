@@ -117,7 +117,37 @@ HttpStatusCode router_get_entry(Arena* arena, const Router* r, const HttpRequest
     return HTTP_METHOD_NOT_ALLOWED;
 }
 
-
+/**
+ * @brief find piece of code responsable for filling the response and call them.
+ */
+void router_dispatch(const RouterEntry* endpoint, const HttpRequest* req, HttpResponse* res) {
+    if (req->r_method == HEAD && endpoint->r_method == GET) {
+        res->send_body = false;
+    }
+    switch (endpoint->handler.kind) {
+    case ROUTER_FUNC:
+        if (endpoint->handler.method_fptr == NULL) {
+            mlog_error("The handler responsible for route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint->route_str));
+            res->code = HTTP_INTERNAL_SERVER_ERROR;
+            res->keep_alive = false;
+            return;
+        }
+        endpoint->handler.method_fptr(req, res);
+        break;
+    case ROUTER_FILE:
+        if (endpoint->handler.path.s_ptr == NULL) {
+            mlog_error("The file returned by route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint->route_str));
+            res->code = HTTP_INTERNAL_SERVER_ERROR;
+            res->keep_alive = false;
+            return;
+        }
+        static_file_handler(req, res, &endpoint->handler.path, endpoint->expect);
+        break;
+    
+    default:
+        break;
+    }
+}
 
 
 _Public_ void __router_set_routes(Router* r, RouterEntry* entries, size_t amount) {

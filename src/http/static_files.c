@@ -1,11 +1,9 @@
-#define _GNU_SOURCE
-
 #include <private/mcfw.h>
 
 MIMELutEntry MIME_LUT[CONTENT_TYPE_N_MEMB];
 
 
-static inline DStatic get_extension(DStatic* file_name) {
+static inline DStatic get_extension(const DStatic* file_name) {
     uint8_t* ptr = (uint8_t*)memrchr(file_name->s_ptr, '.', file_name->count);
     if (!ptr) return (DStatic){0};
     size_t len = (size_t)file_name->s_ptr - ((size_t)ptr - file_name->count);
@@ -15,7 +13,7 @@ static inline DStatic get_extension(DStatic* file_name) {
 void static_file_handler(
     const HttpRequest* req,
     HttpResponse* res,      
-    DStatic* file_path,
+    const DStatic* file_path,
     HttpContentType router_expect
 ) {
     // TEMP

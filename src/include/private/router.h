@@ -32,5 +32,6 @@ typedef void(*AppEntryFn)(Router* );
  
 void router_destroy(Router* r);
 HttpStatusCode router_get_entry(Arena* arena, const Router* r, const HttpRequest* req, _Out_ RouterEntry* out_re);
+void router_dispatch(const RouterEntry* endpoint, const HttpRequest* req, HttpResponse* res);
 
 #endif // ROUTER_PRIV_H_

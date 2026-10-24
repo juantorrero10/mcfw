@@ -103,10 +103,6 @@ async(client_handler, int fd) {
             goto __exit_err;
         }
 
-        if (req.r_method == HEAD && endpoint.r_method == GET) {
-            res.send_body = false;
-        }
-
         status = req_fill_core_headers(&req, endpoint.expect);
         if (status != HTTP_OK) {
             res.code = status;
@@ -150,33 +146,9 @@ async(client_handler, int fd) {
         res_allocate_headers(&res, &arena);
 
         
-        // Execute handler
-        switch (endpoint.handler.kind)
-        {
-        case ROUTER_FUNC:
-            if (endpoint.handler.method_fptr == NULL) {
-                mlog_error("The handler responsible for route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint.route_str));
-                res.code = HTTP_INTERNAL_SERVER_ERROR;
-                res.keep_alive = false;
-                res_send(&res, SEND_TIMEOUT);
-                goto __exit_err;
-            }
-            endpoint.handler.method_fptr(&req, &res);
-            break;
-        case ROUTER_FILE:
-            if (endpoint.handler.path.s_ptr == NULL) {
-                mlog_error("The file returned by route \"%.*s\" is a NULL pointer.", DS_ARGS(endpoint.route_str));
-                res.code = HTTP_INTERNAL_SERVER_ERROR;
-                res.keep_alive = false;
-                res_send(&res, SEND_TIMEOUT);
-                goto __exit_err;
-            }
-            static_file_handler(&req, &res, &endpoint.handler.path, endpoint.expect);
-            break;
+        // Dispatch callback and generate response
+        router_dispatch(&endpoint, &req, &res);
         
-        default:
-            break;
-        }
 
         // Send response, cleanup and loop
 __loop:
