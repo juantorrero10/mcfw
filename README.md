@@ -35,6 +35,7 @@ cd mcfw
 > The enviroment includes the binaries but mainly, the CLI application `./mcfw`.
 > To start a project do:
 ```bash
+cd ./app
 ./mcfw init
 ```
 
