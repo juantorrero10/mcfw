@@ -77,6 +77,7 @@ $(BIN_HOST): $(CRELF_FILE) $(HOST_O) | $(OUT_ENV_HOST)
 	@echo "$(PURPLE)(+) $@.$(WHITE)"
 
 $(CRELF_FILE): $(PY_INPUT) | $(CREFL_FOLDER) $(OUT_ENV_HOST)
+	@echo "Generating reflection: $(YELLOW)$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)$(WHITE)"
 	$(Q)$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
 
 $(OUT_ENV) $(CREFL_FOLDER) $(OUT_ENV_HOST) $(OUT_OBJ):

@@ -31,7 +31,7 @@ uint32_t APP_CURR_VERSION = APP_RELOAD_VER_INITIAL_VAL;
 async_(version_watch_async) {
     detach;
     pid_t parent_pid = getppid();
-    char* watch_folder = (char*)APP_CONFIG_STRUCT->app.source_folder;
+    char* watch_folder = (char*)APP_CONFIG_STRUCT->app.source_folder.data;
     char* files[] = {watch_folder, NULL};
 
     while(1) {
@@ -283,7 +283,7 @@ int load_app() {
     // No need to keep it around.
     unlink(unique_name);
 
-    AppEntryFn entry_point = dlsym(app_handle, APP_CONFIG_STRUCT->app.entry_point);
+    AppEntryFn entry_point = dlsym(app_handle, APP_CONFIG_STRUCT->app.entry_point.data);
     if (!entry_point) {
         mlog_error("Couldn't find application entry point. %s", dlerror());
         goto __exit_dont_apply;

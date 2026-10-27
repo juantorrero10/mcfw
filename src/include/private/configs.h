@@ -4,25 +4,25 @@
 #include <crefl/types.h>
 
 typedef struct {
-    uint32_t hr_enabled;
-    uint32_t log_level;
-    uint32_t no_ss;
+    u32 hr_enabled;
+    u32 log_level;
+    u32 no_ss;
 } mcfw_arg_config;
 
 REFLECT(struct) {
-    char* c_std;
-    DYN_ARRAY(char*) cflags;
+    strZ c_std;
+    DYN_ARRAY(strZ) cflags;
 } __compilation_settings;
 
 REFLECT(struct) {
-    const char* source_folder;
-    const char* entry_point;
+    strZ source_folder;
+    strZ entry_point;
     __compilation_settings compilation;
 } __app_field;
 
 REFLECT(struct) {
-    uint8_t addr[4];
-    uint16_t port;
+    u8 addr[4];
+    u16 port;
 }__host_field;
 
 REFLECT(struct) {

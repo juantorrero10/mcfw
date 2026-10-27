@@ -59,6 +59,7 @@ $(BIN_CLI): $(CRELF_FILE) $(CLI_O) | $(MCFW_WDIR)
 	@echo "$(PURPLE)(+) $@.$(WHITE)"
 
 $(CRELF_FILE): $(PY_INPUT) | $(CREFL_FOLDER) $(MCFW_WDIR)/bin
+	@echo "Generating reflection: $(YELLOW)$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)$(WHITE)"
 	$(Q)$(PY_GEN) -i $(PY_INPUT) -o $(CRELF_FILE)
 
 $(OUT_ENV) $(MCFW_WDIR) $(CREFL_FOLDER) $(MCFW_WDIR)./bin $(OUT_OBJ):

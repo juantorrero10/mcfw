@@ -15,7 +15,7 @@ cp build/lib/libasclib.a ../../app/.mcfw/lib
 cd ../crefl
 make clean
 rm ../../dependencies/crefl/* -rf
-./extract.sh extracted
+./extract.sh 3
 cp -r extracted/crefl_gen ../../app/.mcfw/lib
 cp -r extracted/include/crefl ../../app/.mcfw/include
 cp extracted/lib/libcrefl.a ../../app/.mcfw/lib

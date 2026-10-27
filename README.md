@@ -67,8 +67,8 @@ Commands: init, build, run, watch, clean
 ## Examples
 
 ### 1. Basic application and routing
-MCFW maps HTTP methods and paths to handler functions.
-
+MCFW routes HTTP methods to handlers. A Handler can be a function (a callback essentially), files or directories.
+Here's a basic application example:
 ```c
 #include <mcfw/router.h>
 #include <mcfw/server.h>
@@ -99,7 +99,9 @@ You can map routes to files/dirs locally.
 
 void app_entry(Router* r) {
     router_set_routes(r,
-        ROUTE(GET, "/", HANDLER_DIR("./www")),
+        // If dir root requested ('/') mcfw will try to fetch './www/index.html'
+        ROUTE(GET, "/", HANDLER_DIR("./www")), 
+        // Automatic 'Content-Type' header based on extension
         ROUTE(GET, "/documentation", HANDLER_FILE("./some_pdf.pdf")),
     );
 }
@@ -137,21 +139,21 @@ void example_heap(const HttpRequest* req, HttpResponse* res) {
 
 
 ### 4. Reflection and JSON Deserialization
-Using the `crefl` engine, you can parse incoming JSON (in the future Query parameters too) payloads directly into C structs. The `REFLECT` macro tags the struct for the preprocessor, and `ROUTE_DESERIALIZE` handles the deserilization automatically.
+Using the `crefl` engine, you can parse incoming JSON (in the future Query parameters too) payloads directly into C structs. The `REFLECT` macro tags the struct for the preprocessor, and `ROUTE_DESERIALIZE` handles the deserialization automatically.
 
 ```c
 #include <mcfw/router.h>
 #include <mcfw/server.h>
 
 REFLECT(struct) {
-    uint64_t session_id;
-    const char* title;
-    OPTION(char*) body;
+    u64 session_id;
+    strZ title;
+    OPTION(strZ) body;
 } bug_report_post_t;
 
 REFLECT(struct) {
-    int32_t id;
-    const char* status;
+    i32 id;
+    strZ status;
 } bug_report_response_t;
 
 void bug_report(const HttpRequest* req, HttpResponse* res) {
@@ -174,7 +176,7 @@ void bug_report(const HttpRequest* req, HttpResponse* res) {
 
 void app_entry(Router* r) {
     router_set_routes(r,
-        // Setup the endpoiny
+        // Setup the endpoint
         ROUTE_DESERIALIZE(POST, "/api/report", HANDLER_FN(bug_report), CONTENT_JSON, bug_report_post_t)
     );
 }

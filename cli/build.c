@@ -153,7 +153,7 @@ static char** get_comp_argv(app_config* c) {
     // idx 2 input file (skip for now)
     // idx 3 the c std (special case)
     char* std_flag = strdup(static_flags[3]);
-    memcpy(std_flag + 6, c->app.compilation.c_std, 2);
+    memcpy(std_flag + 6, c->app.compilation.c_std.data, 2);
     ret[3] = std_flag;
 
     for (size_t i = 4; i < n; i++)
@@ -221,7 +221,7 @@ int cmd_build(int recompilation) {
     char** changed_files;
     char* sources_list;
     size_t total_sources = 0;
-    size_t n_changed = extract_sources_info((char*)c->app.source_folder, &changed_files, &sources_list, &total_sources);
+    size_t n_changed = extract_sources_info((char*)c->app.source_folder.data, &changed_files, &sources_list, &total_sources);
 
 
     if (!n_changed) {

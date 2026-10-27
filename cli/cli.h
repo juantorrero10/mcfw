@@ -35,19 +35,19 @@ int wait_one(size_t* n_jobs);
 #include <crefl/types.h>
 
 REFLECT(struct) {
-    char* c_std;
-    DYN_ARRAY(char*) cflags;
+    strZ c_std;
+    DYN_ARRAY(strZ) cflags;
 } __compilation_settings;
 
 REFLECT(struct) {
-    const char* source_folder;
-    const char* entry_point;
+    strZ source_folder;
+    strZ entry_point;
     __compilation_settings compilation;
 } __app_field;
 
 REFLECT(struct) {
-    uint8_t addr[4];
-    uint16_t port;
+    u8 addr[4];
+    u16 port;
 }__host_field;
 
 REFLECT(struct) {
