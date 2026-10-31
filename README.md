@@ -1,4 +1,4 @@
-# MCFW (Modern C Framework)
+# MCFW (Modern C Framework) v0.1.0
 
 A lightweight HTTP backend framework written in pure C. MCFW provides an asynchronous runtime, a reflection and serialization engine, and a built-in CLI that enables automatic builds and hot reloading for user applications.
 
@@ -20,9 +20,9 @@ cd mcfw
 
 
 ### 2. Install dependencies
-> **TODO: script to install them**
 > **This project only works in a POSIX-compliant system and x86_64 architecture**
-> requires `gcc`, `make` and crefl requires `python3.12+` and `pycparser`.
+
+> Requires `gcc`, `make` and Crefl requires `python3.12+` and `pycparser`.
 
 ### 3. Build the framework
 > Run the setup script to build the submodules, compile the framework, and generate the development environment inside the `./app` directory:

@@ -163,7 +163,7 @@ _Public_ void __res_set_content_serialize__(HttpResponse* res, HttpContentType t
         goto _ser_error;
     }
     DHeap buff_serialized = DH_EMPTY();
-    buff_serialized.count = serialize_json(type, (void*)instance, &(buff_serialized.h_ptr), true);
+    buff_serialized.count = json_serialize(type, (void*)instance, &(buff_serialized.h_ptr), true);
     buff_serialized.capacity = buff_serialized.count;
 
     res->type = t;

@@ -89,7 +89,7 @@ static app_config* load_config() {
         mlog_panic("Couldn't read app config %s", strerror(errno));
     }
 
-    DeserializeResult dr = deserialize_json(config_type, config_contents, cur);
+    DeserializeResult dr = json_deserialize(config_type, config_contents, cur);
     if (dr.st != DR_OK) {
         mlog_panic("Couldn't parse app configuration '%s'", dr.data.err_str);
         fclose(f);

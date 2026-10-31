@@ -73,6 +73,7 @@ bool sender_configure_file(HttpSender* str, DStatic file_path, HttpContentType t
 
     struct stat fs;
     if (stat(make_cstr(file_path), &fs) < 0) {
+        mlog_error("Could not open file: %s ", strerror(errno));
         return false;
     }
 

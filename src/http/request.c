@@ -335,7 +335,7 @@ HttpStatusCode req_recv_body(
     }
     req->content.deserialization.type = s;
 
-    DeserializeResult dr = deserialize_json(s, body.h_ptr, body.count);
+    DeserializeResult dr = json_deserialize(s, body.h_ptr, body.count);
     if (dr.st == DR_ERR) {
         mlog_warn("Deserialization failed: %s", dr.data.err_str);
         return HTTP_UNPROCESABLE_CONTENT;

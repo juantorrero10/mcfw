@@ -8,7 +8,7 @@
 #include <crefl/types.h>
 #include <crefl/core.h>
 #include <crefl/serial/err.h>
-#include <crefl/serial/formats.h>
+#include <crefl/serial/json.h>
 
 #include "vendor/argparse.h"
 #include "cli.h"
@@ -118,7 +118,7 @@ int main(int argc, const char** argv) {
     ssize_t sz = fread(j, cur, 1, f); (void)sz;
     fclose(f);
 
-    DeserializeResult dr = deserialize_json(config_type, j, cur);
+    DeserializeResult dr = json_deserialize(config_type, j, cur);
     free(j);
     if (dr.st != DR_OK) {
         log_fatal("Couldn't parse config file: %s", dr.data.err_str);

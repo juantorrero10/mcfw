@@ -3,6 +3,9 @@
 
 #define _GNU_SOURCE
 
+#define MCFW_VERSION_TAG "dev"
+#define MCFW_VERSION "v0.1.0"
+
 /**
  * @brief This function is accesible to the user application.
  */
@@ -46,7 +49,7 @@
 
 #include <crefl/core.h>
 #include <crefl/scope.h>
-#include <crefl/serial/formats.h>
+#include <crefl/serial/json.h>
 
 #include <picohttpparser.h>
 #include <argparse.h>

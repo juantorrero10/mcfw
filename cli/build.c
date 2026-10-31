@@ -1,7 +1,7 @@
 #define _XOPEN_SOURCE 500
 #include <crefl/core.h>
 #include <crefl/serial/err.h>
-#include <crefl/serial/formats.h>
+#include <crefl/serial/json.h>
 #include "cli.h"
 #include "log.h"
 

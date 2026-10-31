@@ -40,7 +40,7 @@ REFLECT(struct) {
 #define CREFL_FOLDER    MCFW_WDIR"/crefl"
 #define CREFL_APP_FILE CREFL_FOLDER"/app_types.crefl"
 
-#define SERVER_HEADER_VAL "mcfw-dev (unstable)"
+#define SERVER_HEADER_VAL "mcfw-"MCFW_VERSION_TAG" "MCFW_VERSION
 
 #define MAX_HEADERS_SIZE  16 * 1024     // 16KB
 #define RECV_ATT_SIZE 8 * 1024          // 8KB
