@@ -21,7 +21,7 @@ arg_flags g_flags = {0};
 
 typedef int(*command)(int);
 
-static command load_command_ptr(int argc, const char** argv, int* help) {
+static command load_command_ptr(int argc, const char** argv, int* help, int* print_version) {
     if (argc < 2) {
         log_warn("No command given, see the list of commands ./mcfw --help");
         return NULL; 
@@ -41,6 +41,9 @@ static command load_command_ptr(int argc, const char** argv, int* help) {
     } else if (!strcmp(cmd, "--help")){
         *help = 1;
         return NULL;
+    } else if (!strcmp(cmd, "--version")) {
+        *print_version = 1;
+        return NULL;
     } else {
         log_fatal("Unknown command '%s', see the list of commands with --help", cmd);
         return NULL;
@@ -51,8 +54,9 @@ int main(int argc, const char** argv) {
 
     // Command
     int help = 0;
-    command fptr = load_command_ptr(argc, argv, &help);
-    if (!fptr && !help) return 1;
+    int print_version = 0;
+    command fptr = load_command_ptr(argc, argv, &help, &print_version);
+    if (!fptr && !(help || print_version)) return 1;
 
     char* p_ptr = NULL;
     
@@ -68,6 +72,7 @@ int main(int argc, const char** argv) {
         OPT_BOOLEAN('d', "daemon", &g_flags.daemon, "Run in background", NULL, 0, 0),
         OPT_GROUP("Misc."),
         OPT_STRING(0, "set-pwd", &p_ptr, "Set working directory.", NULL, 0, 0),
+        OPT_BOOLEAN(0, "version", &print_version, "Print mcfw version.", NULL, 0, 0),
         OPT_END(),
     };
 
@@ -81,6 +86,11 @@ int main(int argc, const char** argv) {
         "\nCommands: init, dev, build, daemon, clean, help");
     
     argparse_parse(&a, (help)? argc : argc - 1, (help)? argv : argv + 1);
+
+    if (print_version) {
+        printf("mcfw-"MCFW_VERSION_TAG" "MCFW_VERSION".\n");
+        return 0;
+    }
 
 
     if (p_ptr) {
