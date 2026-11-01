@@ -135,11 +135,46 @@ void example_heap(const HttpRequest* req, HttpResponse* res) {
     // NO: DH_FREE(h_buff)
 }
 ```
+### 4. Query Parameters
+Using the `crefl` engine you can add query parameters to your endpoints. The `REFLECT` macro tags the struct for the preprocessor.
+
+```c
+#include <mcfw/router.h>
+#include <mcfw/query.h>
+
+// Define the schema
+// Try: localhost:PORT?foo=bar&integer=4337
+REFLECT(struct) {
+    strZ foo;
+    i32 integer;
+} home_query_params;
+
+void home(const HttpRequest* req, HttpResponse* res) {
+    // Build a static buffer in the stack
+    u8 __b[1024];
+    DStatic res_buff = DS_FROM(__b, 0, 1023);
+    // Get the struct
+    home_query_params* params = query_params_get(req);
+    // Render the HTML
+    DS_WRITE(res_buff, 
+        "<h2>Foo:</h2>"
+        "<p>%s</p>\n"
+        "<h2>Integer:</h2>"
+        "<p>%d</p>\n"
+    , params->foo.data, params->integer);
+    res_set_content(res, CONTENT_HTML, res_buff);
+}
+
+void app_entry(Router* r) {
+    router_set_routes(r,
+        ROUTE(GET, "/", HANDLER_FN(home), QUERY(home_query_params))
+    );
+}
+```
 
 
-
-### 4. Reflection and JSON Deserialization
-Using the `crefl` engine, you can parse incoming JSON (in the future Query parameters too) payloads directly into C structs. The `REFLECT` macro tags the struct for the preprocessor, and `ROUTE_DESERIALIZE` handles the deserialization automatically.
+### 5. Reflection and JSON Deserialization
+Also using `crefl`, you can parse incoming JSON payloads directly into C structs. With `ROUTE_DESERIALIZE` deserialization is handled automatically.
 
 ```c
 #include <mcfw/router.h>
