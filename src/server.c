@@ -117,12 +117,12 @@ async(client_handler, int fd) {
             if (status != HTTP_OK) {
                 res.code = status;
                 // Keep alive can remain
-                // if (req.r_method < PAYLOAD_METHODS_IDX && 
-                //     status >= HTTP_REQ_ERRORS_START &&
-                //     status < HTTP_SERVER_ERRORS_START
-                // ) {
-                //     goto __loop;
-                // }
+                if (req.r_method < PAYLOAD_METHODS_IDX && 
+                    status >= HTTP_REQ_ERRORS_START &&
+                    status < HTTP_SERVER_ERRORS_START
+                ) {
+                    goto __loop;
+                }
                 res.keep_alive = false;
                 res_send(&res, SEND_TIMEOUT);
                 goto __exit_err;

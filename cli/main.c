@@ -62,6 +62,7 @@ int main(int argc, const char** argv) {
     
     struct argparse_option options[] = {
         OPT_HELP(),
+        OPT_BOOLEAN(0, "version", &print_version, "Print mcfw version.", NULL, 0, 0),
         OPT_GROUP("Compilation options."),
         OPT_BOOLEAN('f', "force-compile", &g_flags.force_compile, "Ignore cached obj files, recompile everything", NULL, 0, 0),
         OPT_BOOLEAN('s', "serial-compilation", &g_flags.serial_comp ,"Do not parallelize the compilation.", NULL, 0, 0),
@@ -72,7 +73,6 @@ int main(int argc, const char** argv) {
         OPT_BOOLEAN('d', "daemon", &g_flags.daemon, "Run in background", NULL, 0, 0),
         OPT_GROUP("Misc."),
         OPT_STRING(0, "set-pwd", &p_ptr, "Set working directory.", NULL, 0, 0),
-        OPT_BOOLEAN(0, "version", &print_version, "Print mcfw version.", NULL, 0, 0),
         OPT_END(),
     };
 
@@ -83,7 +83,7 @@ int main(int argc, const char** argv) {
     argparse_init(&a, options, NULL, ARGPARSE_STOP_AT_NON_OPTION);
     argparse_describe(&a, 
         "\nMCFW: The Modern C Framework.", 
-        "\nCommands: init, dev, build, daemon, clean, help");
+        "\nCommands: init, build, clean, run, watch");
     
     argparse_parse(&a, (help)? argc : argc - 1, (help)? argv : argv + 1);
 
