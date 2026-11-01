@@ -50,6 +50,7 @@
 #include <crefl/core.h>
 #include <crefl/scope.h>
 #include <crefl/serial/json.h>
+#include <crefl/serial/query.h>
 
 #include <picohttpparser.h>
 #include <argparse.h>

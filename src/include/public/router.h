@@ -21,6 +21,11 @@ typedef void (*RouteHandlerUIntFn)(const HttpRequest*, HttpResponse*, uint64_t);
 typedef void (*RouteHandlerIntFn)(const HttpRequest*, HttpResponse*, int64_t);
 typedef void (*RouteHandlerStrFn)(const HttpRequest*, HttpResponse*, DStatic);
 
+struct RouterAdditionalParams {
+    size_t __unused;
+    char* query_schema_typename;
+};
+
 typedef struct {
     bool deserialize;
     HttpRequestMethod r_method;
@@ -34,6 +39,7 @@ typedef struct {
     } handler;
     DStatic deserialize_typename;
     DStatic route_str;
+    struct RouterAdditionalParams __additional_parameters;
 } RouterEntry;
 
 typedef struct __MCFW__ROUTER__ Router;
@@ -51,14 +57,18 @@ typedef struct __MCFW__ROUTER__ Router;
 #define HANDLER_DIR(dir_path_cstr) { .kind = ROUTER_DIR, .path = STR_CONVERSION(dir_path_cstr) }
 
 
-#define ROUTE(_method, _route_cstr, _handler)       \
-    (RouterEntry){                                  \
-        .deserialize = false,                       \
-        .r_method = (_method),                      \
-        .route_str = STR_CONVERSION(_route_cstr),   \
-        .expect = CONTENT_NOT_SPECIFIED,            \
-        .deserialize_typename = DS_EMPTY(),         \
-        .handler = _handler                         \
+#define ROUTE(_method, _route_cstr, _handler, ...)                      \
+    (RouterEntry){                                                      \
+        .deserialize = false,                                           \
+        .r_method = (_method),                                          \
+        .route_str = STR_CONVERSION(_route_cstr),                       \
+        .expect = CONTENT_NOT_SPECIFIED,                                \
+        .deserialize_typename = DS_EMPTY(),                             \
+        .handler = _handler,                                            \
+        .__additional_parameters = (struct RouterAdditionalParams) {    \
+            .__unused = 0,                                              \
+            __VA_ARGS__                                                 \
+        }                                                               \
     }
 
 #define ROUTE_DESERIALIZE(_method, _route_cstr, _handler, _content_type, _reflected_type) \

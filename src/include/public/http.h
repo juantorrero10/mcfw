@@ -132,6 +132,12 @@ typedef struct __MCFW_HTTP_REQUEST__ {
         } deserialization;
     } content;
 
+    struct {
+        void* instance;
+        RStruct* type;
+        DStatic stream;
+    } query_params;
+
     // Essential Headers easy access 
     struct HttpCoreHeaders core_headers;
     /**

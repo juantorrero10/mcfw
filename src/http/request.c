@@ -209,6 +209,18 @@ __parse:
         return HTTP_HEADERS_TOO_LARGE;
     }
 
+    // Split by ?
+    char* s = memchr(req->path.s_ptr, '?', req->path.count);
+    if (!s) {
+        req->query_params.stream = DS_EMPTY();
+    } else {
+        ptrdiff_t path_len = (uintptr_t)s - (uintptr_t)req->path.s_ptr;
+        size_t count = req->path.count;
+        req->path = DS_VIEW(req->path.s_ptr, 0, path_len);
+        req->query_params.stream = DS_VIEW(req->path.s_ptr, path_len + 1, count - path_len - 1);
+    }
+
+
     // Create headers hashtable
     DStatic ht_buff = mcfw_arena_alloc(
         arena, 
@@ -355,9 +367,37 @@ void req_destroy(HttpRequest* req) {
             req->content.deserialization.instance
         );
     }
+    if (req->query_params.instance) {
+        refl_generic_destructor(
+            req->query_params.type,
+            req->query_params.instance
+        );
+        req->query_params.instance = NULL;
+        req->query_params.type = NULL;
+    }
     if (DH_IS_VALID(req->content.body)) DH_FREE(req->content.body);
     req->content.body = DH_EMPTY();
     req->was_deserialized = false;
+}
+
+HttpStatusCode req_deserialize_query_params(
+    HttpRequest* restrict req,
+    const AppContext* restrict ctx, 
+    const char* restrict query_schema
+) {
+    RStruct* s = refl_fetch_struct_from(ctx->crefl_data->c_handle, query_schema);
+    if (!s) {
+        mlog_error("Could not fetch query params schema: \"%s\"", query_schema);
+        return HTTP_INTERNAL_SERVER_ERROR;
+    }
+    DeserializeResult dr = query_deserialize(s, req->query_params.stream.s_ptr, req->query_params.stream.count);
+    if (dr.st == DR_ERR) {
+        mlog_warn("Couldn't deserialize query params: %s", dr.data.err_str);
+        return HTTP_BAD_REQUEST;
+    }
+    req->query_params.type = s;
+    req->query_params.instance = dr.data.buff;
+    return HTTP_OK;
 }
 
 
@@ -394,11 +434,22 @@ _Public_ DStatic req_get_header_value(const HttpRequest* req, DStatic name) {
  */
 _Public_ void* req_get_deserialized_body(const HttpRequest* req) {
     if (!req->was_deserialized) {
-        mlog_warn(
+        mlog_error(
             "%.*s handler is expecting a deserialized body "
             "when no deserialization was configured to happen. Returning NULL",
         DS_ARGS(req->path));
         return NULL;
     }
     return req->content.deserialization.instance;
+}
+
+_Public_ void* query_params_get(const HttpRequest* req) {
+    if (!req->query_params.instance) {
+        mlog_error(
+            "%.*s handler is expecting deserialized query parameters "
+            "but a NULL pointer is beign returned",
+        DS_ARGS(req->path));
+        return NULL;
+    }
+    return req->query_params.instance;
 }

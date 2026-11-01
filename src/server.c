@@ -36,7 +36,6 @@ async(client_handler, int fd) {
     
     // Init arena
     Arena arena = mcfw_arena_init(RECV_BUFF_SIZE);
-    
 
     // main objects
     HttpStatusCode status = HTTP_OK;
@@ -111,20 +110,38 @@ async(client_handler, int fd) {
             goto __exit_err;
         }
 
+        // Deserialize query params if configured
+        char* schema_name = endpoint.__additional_parameters.query_schema_typename;
+        if (schema_name) {
+            status = req_deserialize_query_params(&req, ctx, schema_name);
+            if (status != HTTP_OK) {
+                res.code = status;
+                // Keep alive can remain
+                // if (req.r_method < PAYLOAD_METHODS_IDX && 
+                //     status >= HTTP_REQ_ERRORS_START &&
+                //     status < HTTP_SERVER_ERRORS_START
+                // ) {
+                //     goto __loop;
+                // }
+                res.keep_alive = false;
+                res_send(&res, SEND_TIMEOUT);
+                goto __exit_err;
+            }
+        }
+
         // Get body
         if (req.r_method >= PAYLOAD_METHODS_IDX) {
-            __recv_body:
-            status = req_recv_body(
-                fd, 
-                &req, 
-                ctx, 
-                endpoint.deserialize_typename, 
-                &unused_data,
-                endpoint.deserialize
-            );
-            if (status == HTTP_CONTINUE) {
-                goto __recv_body;
-            }
+            do {
+                status = req_recv_body(
+                    fd, 
+                    &req, 
+                    ctx, 
+                    endpoint.deserialize_typename, 
+                    &unused_data,
+                    endpoint.deserialize
+                );
+            } while (status == HTTP_CONTINUE);
+            
             if (status != HTTP_OK) {
                 res.code = status;
                 res.keep_alive = false;

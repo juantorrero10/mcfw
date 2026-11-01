@@ -8,6 +8,11 @@
 
 void req_destroy(HttpRequest* restrict req);
 HttpStatusCode req_fill_core_headers(HttpRequest* restrict req, HttpContentType expected);
+HttpStatusCode req_deserialize_query_params(
+    HttpRequest* restrict req,
+    const AppContext* ctx, 
+    const char* restrict query_schema
+);
 HttpStatusCode req_recv_headers(
     Arena* arena,
     int client_fd,
