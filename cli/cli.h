@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 #define MCFW_VERSION_TAG "dev"
-#define MCFW_VERSION "v0.4.0"
+#define MCFW_VERSION "v0.5.0"
 
 extern char cache_string[];
 extern int force_cache;

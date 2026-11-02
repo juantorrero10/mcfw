@@ -1,4 +1,4 @@
-# MCFW (Modern C Framework) v0.4.0
+# MCFW (Modern C Framework) v0.5.0
 
 A lightweight HTTP backend framework written in pure C. MCFW provides an asynchronous runtime, a reflection and serialization engine, and a built-in CLI that enables automatic builds and hot reloading for user applications.
 
