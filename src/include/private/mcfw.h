@@ -65,4 +65,7 @@
 #include <private/version.h>
 #include <private/server.h>
 
+#include <public/query.h>
+#include <public/cookies.h>
+
 #endif // PRIVATE_MCFW_H_
