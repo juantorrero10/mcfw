@@ -156,7 +156,7 @@ async(client_handler, int fd) {
         // Set some headers from the request because the response needs them
         res_set_req_headers(&res, 
             req.core_headers.conn_keep_alive,
-            req_get_header_value(&req, DS_LIT("Range"))
+            req_get_header_value_unchecked(&req, DS_LIT("Range"))
         );
 
         // Allocate the space for the app's custom headers

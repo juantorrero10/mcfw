@@ -1,4 +1,4 @@
-# MCFW (Modern C Framework) v0.3.0
+# MCFW (Modern C Framework) v0.4.0
 
 A lightweight HTTP backend framework written in pure C. MCFW provides an asynchronous runtime, a reflection and serialization engine, and a built-in CLI that enables automatic builds and hot reloading for user applications.
 
@@ -204,7 +204,7 @@ void bug_report(const HttpRequest* req, HttpResponse* res) {
     if (bug->session_id != 738473) {
         bug_report_response_t r = { .id = 1, .status = "Failure, unauthorized user" };
         res_set_content_serialize(res, CONTENT_JSON, bug_report_response_t, &r);
-        res_set_status_code(res, HTTP_UNAUTHORIZED);
+        res_set_status(res, HTTP_UNAUTHORIZED);
         return;
     }
 }

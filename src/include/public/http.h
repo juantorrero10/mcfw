@@ -2,6 +2,7 @@
 #define PUBLIC_HTTP_H
 
 #include "buffers.h"
+#include "err.h"
 
 #define HTTP_REQ_ERRORS_START 400
 #define HTTP_SERVER_ERRORS_START 500
@@ -149,18 +150,21 @@ typedef struct __MCFW_HTTP_REQUEST__ {
 
 typedef struct __MCFW_HTTP_RESPONSE__ HttpResponse;
 
+make_result(DStatic, Header);
 
 /**
  * @brief Try to find the value of a header inside the http request
  * @note Search is O(1) because is a hash table. 
  * @returns String slice of the value or an invalid DStatic if not present. 
  */
-DStatic req_get_header_value(const HttpRequest* req, const DStatic name);
+HeaderResult req_get_header_value(const HttpRequest* req, const DStatic name);
 
 /**
  * @brief wrapper to req->body.deserialized
- * @returns NULL if no deserialization happened. 
- * This probably means the route was badly configured.
+ * @returns Ptr to deserialized body, by this point is guaranteed
+ * to be valid if endpoint is correctly configured. 
+ * It will be NULL if no deserialization was configured to happen. 
+ * An error message will be logged warning about that.
  * @note to obtain the instance just cast it 
  * (ex: ```Type* instance = req_get_deserialized_body(req)```)
  * @attention Do not try to free the data
@@ -226,7 +230,7 @@ void res_set_content_type(HttpResponse* res, const DStatic MIME_type_name);
  * @note HTTP_OK (200) is the default code, if this code is desired
  * you can omit calling this function
  */
-void res_set_status_code(HttpResponse* res, HttpStatusCode code);
+void res_set_status(HttpResponse* res, HttpStatusCode code);
 
 /**
  * @note It is recommended to use the macro ```res_add_header``` 

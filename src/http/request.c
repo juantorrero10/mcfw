@@ -51,7 +51,7 @@ static void _create_headers_hashtable(HttpRequest* req, struct phr_header* heade
 
 HttpStatusCode req_fill_core_headers(HttpRequest* restrict req, HttpContentType expected) {
     // Connection
-    DStatic connection = req_get_header_value(req, DS_LIT("Connection"));
+    DStatic connection = req_get_header_value_unchecked(req, DS_LIT("Connection"));
     // No connection header or malformed -> keep-alive. (HTTP 1.1+)
     req->core_headers.conn_keep_alive = 
     (   
@@ -62,9 +62,9 @@ HttpStatusCode req_fill_core_headers(HttpRequest* restrict req, HttpContentType 
     )? true : false;
 
     // Accept, the app will deal with the possible NULL.
-    req->core_headers.accept = req_get_header_value(req, DS_LIT("Accept"));
+    req->core_headers.accept = req_get_header_value_unchecked(req, DS_LIT("Accept"));
     // Host, mandatory in HTTP 1.1+
-    req->core_headers.host = req_get_header_value(req, DS_LIT("Host"));
+    req->core_headers.host = req_get_header_value_unchecked(req, DS_LIT("Host"));
     if (req->minor_version >= 1 && !DS_IS_VALID(req->core_headers.host)) {
         mlog_info("1");
         return HTTP_BAD_REQUEST;
@@ -72,7 +72,7 @@ HttpStatusCode req_fill_core_headers(HttpRequest* restrict req, HttpContentType 
 
     // Content-Length
     req->core_headers.tx_encoding = TRANSFER_INMEDIATE;
-    DStatic content_length = req_get_header_value(req, DS_LIT("Content-Length"));
+    DStatic content_length = req_get_header_value_unchecked(req, DS_LIT("Content-Length"));
     req->core_headers.payload_len.content_length = 0;
 
     if (DS_IS_VALID(content_length)) {
@@ -100,7 +100,7 @@ HttpStatusCode req_fill_core_headers(HttpRequest* restrict req, HttpContentType 
 
         req->content.body.capacity = req->core_headers.payload_len.content_length;
 
-        DStatic content_type = req_get_header_value(req, DS_LIT("Content-Type"));
+        DStatic content_type = req_get_header_value_unchecked(req, DS_LIT("Content-Type"));
         if (content_type.s_ptr) {
             const struct mime_str_map* m = mime_str_lookup((char*)content_type.s_ptr, content_type.count);
             req->core_headers.content_type = m? (HttpContentType)m->id : CONTENT_OTHER;
@@ -286,7 +286,7 @@ HttpStatusCode req_recv_body(
     }
 
     // Check for Expect: 100-continue
-    DStatic expect = req_get_header_value(req, DS_LIT("Expect"));
+    DStatic expect = req_get_header_value_unchecked(req, DS_LIT("Expect"));
     if (
         DS_IS_VALID(expect)
         && expect.count == sizeof("100-continue") - 1 
@@ -401,11 +401,8 @@ HttpStatusCode req_deserialize_query_params(
 }
 
 
-/**
- * @brief hash table lookup for a name in the headers table.
- * @return table entry with the name and the value or NULL string slice if not found.
- */
-_Public_ DStatic req_get_header_value(const HttpRequest* req, DStatic name) {
+
+DStatic req_get_header_value_unchecked(const HttpRequest* req, DStatic name) {
     size_t n_attempt = 0;
     const struct HttpHeaderHTable* headers = &req->header_table;
     size_t hashed_idx = dbj2_hash(&name) & (headers->capacity - 1);
@@ -422,6 +419,18 @@ _Public_ DStatic req_get_header_value(const HttpRequest* req, DStatic name) {
         hashed_idx = (hashed_idx + 1) & (headers->capacity - 1);
     }
     return (DStatic){0};
+}
+
+/**
+ * @brief hash table lookup for a name in the headers table.
+ * @return table entry with the name and the value or NULL string slice if not found.
+ */
+_Public_ HeaderResult req_get_header_value(const HttpRequest* req, DStatic name) {
+    DStatic header_val = req_get_header_value_unchecked(req, name);
+    if (!DS_IS_VALID(header_val)) {
+        return (HeaderResult){ .is_ok = false, .err = MCFW_NOT_FOUND };
+    }
+    return (HeaderResult){ .is_ok = true, .value = header_val };
 }
 
 /**

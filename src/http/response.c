@@ -176,7 +176,7 @@ _Public_ void __res_set_content_serialize__(HttpResponse* res, HttpContentType t
     return;
     
 _ser_error:
-    res_set_status_code(res, HTTP_INTERNAL_SERVER_ERROR);
+    res_set_status(res, HTTP_INTERNAL_SERVER_ERROR);
     res_set_content_empty(res);
     return;
 }
@@ -260,7 +260,7 @@ _Public_ void res_set_content_file(
  * @note HTTP_OK (200) is the default code, if this code is desired
  * you can omit calling this function
  */
-_Public_ void res_set_status_code(HttpResponse* res, HttpStatusCode code) {
+_Public_ void res_set_status(HttpResponse* res, HttpStatusCode code) {
     res->code = code;
 }
 

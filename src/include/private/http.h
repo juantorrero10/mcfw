@@ -30,6 +30,8 @@ HttpStatusCode req_recv_body(
     bool deserialize
 );
 
+DStatic req_get_header_value_unchecked(const HttpRequest* req, DStatic name);
+
 typedef enum {
     ALIGN_HEADER,
     ALIGN_CRFL,
