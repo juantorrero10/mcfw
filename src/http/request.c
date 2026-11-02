@@ -209,7 +209,7 @@ __parse:
         return HTTP_HEADERS_TOO_LARGE;
     }
 
-    // Split by ?
+    // Split by ? and get query params
     char* s = memchr(req->path.s_ptr, '?', req->path.count);
     if (!s) {
         req->query_params.stream = DS_EMPTY();
@@ -217,7 +217,7 @@ __parse:
         ptrdiff_t path_len = (uintptr_t)s - (uintptr_t)req->path.s_ptr;
         size_t count = req->path.count;
         req->path = DS_VIEW(req->path.s_ptr, 0, path_len);
-        req->query_params.stream = DS_VIEW(req->path.s_ptr, path_len + 1, count - path_len - 1);
+        req->query_params.stream = DS_VIEW((u8*)req->path.s_ptr + path_len + 1, 0, count - (path_len + 1));
     }
 
 

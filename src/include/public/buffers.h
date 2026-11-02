@@ -111,7 +111,7 @@ typedef struct {
 
 #define DS_VIEW(_buffer, start, end) ({\
     size_t __s = end - start;\
-    DS_FROM(_buffer + start, __s, __s);\
+    DS_FROM((u8*)_buffer + start, __s, __s);\
 })
 
 #define DH_WRITE(_dheap, fmt, ...) do {\
