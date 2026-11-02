@@ -4,7 +4,7 @@
 #define _GNU_SOURCE
 
 #define MCFW_VERSION_TAG "dev"
-#define MCFW_VERSION "v0.3.0"
+#define MCFW_VERSION "v0.4.0"
 
 /**
  * @brief This function is accesible to the user application.
