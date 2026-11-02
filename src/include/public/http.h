@@ -229,11 +229,25 @@ void res_set_content_type(HttpResponse* res, const DStatic MIME_type_name);
 void res_set_status_code(HttpResponse* res, HttpStatusCode code);
 
 /**
- * @brief Add a header to the HTTP response.
+ * @note It is recommended to use the macro ```res_add_header``` 
+ * for automatic buffer type generalization 
+ */
+bool __res_add_header(HttpResponse* res, DBuffer name, DBuffer value);
+
+/**
+ * @brief Add a header to the HTTP response..
+ * @note This is macro wrapper around ```__res_set_add_header``` 
+ * to provide buffer type generalization.
+ * @param resp_ptr HttpResponse*
+ * @param name DStatic, DHeap or DBuffer, it will be generalized to DBuffer
+ * @param value DStatic, DHeap or DBuffer, it will be generalized to DBuffer
  * @returns true if headers was successfully added. 
  * There is a limit of 128 headers, after which, false is returned
+ * @attention Ownership of name and value gets transfered to the framework, 
+ * this means that it be freed (if necessary) automatically after sending the response.   
  */
-bool res_add_header(HttpResponse* res, const DStatic name, const DStatic value);
+#define res_add_header(resp_ptr, name, value) \
+    __res_add_header(resp_ptr, DB_FROM(name), DB_FROM(value));
 
 /**
  * @brief Include "Connection: Close" in the headers and close the client socket.

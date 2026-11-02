@@ -93,8 +93,13 @@ typedef struct {
 
 #define HTTP_RES_SIGNATURE 0x52455350 // "RESP"
 
+struct HttpOwnedHeader {
+    DBuffer header_name;
+    DBuffer val;
+};
+
 struct HttpHeaderArray {
-    struct HttpHeader* data;
+    struct HttpOwnedHeader* data;
     size_t count;
     size_t capacity;
 };

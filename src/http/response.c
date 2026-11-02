@@ -29,7 +29,7 @@ static inline char* get_gmt_date(char* write_at, size_t len) {
     return write_at;
 }
 
-static void res_collect_headers(HttpResponse* res) {
+static void res_consume_headers(HttpResponse* res) {
     // Push essential stuff
     char date_buff[32];
 
@@ -71,17 +71,22 @@ static void res_collect_headers(HttpResponse* res) {
 
     for (size_t i = 0; i < res->response_headers.count; i++)
     {
-        struct HttpHeader* h = &res->response_headers.data[i];
-        if (!DS_IS_VALID(h->header_name) || !DS_IS_VALID(h->val)) continue;
+        struct HttpOwnedHeader* h = &res->response_headers.data[i];
+        DStatic* name = &h->header_name.buff.st;
+        DStatic* val = &h->val.buff.st;
+        if (!DS_IS_VALID(*name) || !DS_IS_VALID(*val)) continue;
         if (buff->capacity < 
             buff->count + (2 * crlf.count) + 
-            sep.count + h->header_name.count + 
-            h->val.count
+            sep.count + name->count + 
+            val->count
         ) break;
-        dstatic_concat(buff, &h->header_name);
+        dstatic_concat(buff, name);
         dstatic_concat(buff, &sep);
-        dstatic_concat(buff, &h->val);
+        dstatic_concat(buff, val);
         dstatic_concat(buff, &crlf);
+
+        if (h->header_name.is_heap_alloced) DH_FREE(h->header_name.buff.hp);
+        if (h->val.is_heap_alloced) DH_FREE(h->val.buff.hp);
     }
 
     dstatic_concat(buff, &crlf);
@@ -91,7 +96,7 @@ static void res_collect_headers(HttpResponse* res) {
 void res_send(HttpResponse* res, uint64_t timeout_ms) {
     uint8_t __b[MAX_HEADERS_SIZE];
     res->stream.resp_headers = DS_FROM(__b, 0, MAX_HEADERS_SIZE);
-    res_collect_headers(res);
+    res_consume_headers(res);
     sender_push(&res->stream, timeout_ms, res->send_body);
 }
 
@@ -264,12 +269,12 @@ _Public_ void res_set_status_code(HttpResponse* res, HttpStatusCode code) {
  * @returns true if headers was successfully added. 
  * There is a limit of 128 headers, after which, false is returned
  */
-_Public_ bool res_add_header(HttpResponse* res, DStatic name, DStatic value) {
+_Public_ bool __res_add_header(HttpResponse* res, DBuffer name, DBuffer value) {
     if (res->response_headers.count >= res->response_headers.capacity) {
         return false;
     }
     res->response_headers.data[res->response_headers.count++] = 
-        (struct HttpHeader){
+        (struct HttpOwnedHeader){
             .header_name = name,
             .val = value
         };
