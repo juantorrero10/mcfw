@@ -452,6 +452,8 @@ _Public_ void* req_get_deserialized_body(const HttpRequest* req) {
     return req->content.deserialization.instance;
 }
 
+// Query.h impls
+
 _Public_ void* query_params_get(const HttpRequest* req) {
     if (!req->query_params.instance) {
         mlog_error(

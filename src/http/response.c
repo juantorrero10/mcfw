@@ -284,3 +284,35 @@ _Public_ bool __res_add_header(HttpResponse* res, DBuffer name, DBuffer value) {
 _Public_ void res_close_connection(HttpResponse* res) {
     res->keep_alive = false;
 }
+
+// Cookies.h impls
+
+_Public_ bool cookie_set(HttpResponse* res, DStatic name, DStatic value, CookieSettings cs) {
+    // Allocate buffer
+    // It is in the heap because i want to leave the stack to user app as much as possible.
+    DHeap b = DH_NEW(
+        name.count + value.count + cs.path.count + cs.domain.count + 256
+    );
+    DH_WRITE(b, "%.*s=%.*s; SameSite=%s",
+        DS_ARGS(name), DS_ARGS(value), 
+        cs.same_site_strict? "Strict" : "Lax"
+    );
+    if (cs.max_age > 0) {
+        DH_WRITE(b, "; Max-Age=%lu", cs.max_age);
+    }
+    if (cs.http_only) {
+        DStatic ho = DS_LIT("; HttpOnly");
+        dheap_concat(&b, &ho);
+    }
+    if (cs.secure) {
+        DStatic ho = DS_LIT("; Secure");
+        dheap_concat(&b, &ho);
+    }
+    if (DS_IS_VALID(cs.path) && cs.path.count > 0) {
+        DH_WRITE(b, "; Path=%.*s", DS_ARGS(cs.path));
+    }
+    if (DS_IS_VALID(cs.domain) && cs.domain.count > 0) {
+        DH_WRITE(b, "; Domain=%.*s", DS_ARGS(cs.domain));
+    }
+    return res_add_header(res, DS_LIT("Set-Cookie"), b);
+}

@@ -12,6 +12,7 @@ typedef struct __MCFW_COOKIE_SETTINGS__ {
     bool same_site_strict;
     bool secure;
     DStatic path;
+    DStatic domain;
 } CookieSettings;
 
 
@@ -26,12 +27,13 @@ typedef struct __MCFW_COOKIE_SETTINGS__ {
  * Use for: Session tokens, auth identifiers.
  * Protection: XSS-proof (HttpOnly), CSRF-proof (Strict), HTTPS-only.
  */
-#define COOKIE_STRICT(_max_age) ((CookieSettings){    \
-    .max_age = (_max_age),                            \
-    .http_only = true,                                \
-    .secure = true,                                   \
-    .same_site_strict = true,                         \
-    .path = DS_LIT("/")                               \
+#define COOKIE_STRICT(_max_age) ((CookieSettings){      \
+    .max_age = (_max_age),                              \
+    .http_only = true,                                  \
+    .secure = true,                                     \
+    .same_site_strict = true,                           \
+    .path = DS_LIT("/"),                                \
+    .domain = DS_EMPTY()                                \
 })
 
 /**
@@ -44,12 +46,13 @@ typedef struct __MCFW_COOKIE_SETTINGS__ {
     .http_only = false,                                 \
     .secure = true,                                     \
     .same_site_strict = false,                          \
-    .path = DS_LIT("/")                                 \
+    .path = DS_LIT("/"),                                \
+    .domain = DS_EMPTY()                                \
 })
 
 
 typedef struct __MCFW_HTTP_RESPONSE__ HttpResponse;
 
-void cookie_set(HttpResponse* res, DStatic name, CookieSettings cs);
+bool cookie_set(HttpResponse* res, DStatic name, DStatic value, CookieSettings cs);
 
 #endif // PUBLIC_COOKIES_H_
