@@ -426,6 +426,7 @@ DStatic req_get_header_value_unchecked(const HttpRequest* req, DStatic name) {
  * @return table entry with the name and the value or NULL string slice if not found.
  */
 _Public_ HeaderResult req_get_header_value(const HttpRequest* req, DStatic name) {
+    if (!DS_IS_VALID(name) || name.count == 0) return (HeaderResult){ .is_ok = false, .err = MCFW_INVALID_ARG };
     DStatic header_val = req_get_header_value_unchecked(req, name);
     if (!DS_IS_VALID(header_val)) {
         return (HeaderResult){ .is_ok = false, .err = MCFW_NOT_FOUND };
@@ -463,4 +464,46 @@ _Public_ void* query_params_get(const HttpRequest* req) {
         return NULL;
     }
     return req->query_params.instance;
+}
+
+
+_Public_ CookieResult cookie_get(const HttpRequest* req, DStatic name) {
+    HeaderResult cookies_r = req_get_header_value(req, DS_LIT("Cookie"));
+    if (!cookies_r.is_ok) return (CookieResult){ .is_ok = false, .err = cookies_r.err };
+    
+    DStatic cookies = cookies_r.value; 
+    DStatic curr_cookie = DS_EMPTY();
+    u8* end = cookies.s_ptr + cookies.count;
+    
+    while ((u8*)cookies.s_ptr < end) {
+        // Safer: Find ';' first, then handle the optional space
+        u8* end_pair = (u8*)memchr(cookies.s_ptr, ';', cookies.count);
+        
+        if (end_pair) {
+            ptrdiff_t len = end_pair - (u8*)cookies.s_ptr;
+            curr_cookie = DS_VIEW(cookies.s_ptr, 0, (size_t)len);
+            
+            size_t offset = (size_t)len + 1;
+            if (offset < cookies.count && ((u8*)cookies.s_ptr)[offset] == ' ') {
+                offset++;
+            }
+            cookies = DS_VIEW(cookies.s_ptr, offset, cookies.count);
+        } else {
+            curr_cookie = cookies;
+            cookies.s_ptr = end;
+        }
+
+        u8* name_end = (u8*)memchr(curr_cookie.s_ptr, '=', curr_cookie.count);
+        if (!name_end) continue;
+        
+        ptrdiff_t len = name_end - (u8*)curr_cookie.s_ptr;
+        DStatic cname = DS_VIEW(curr_cookie.s_ptr, 0, (size_t)len);
+        
+        if (name.count == cname.count && !memcmp(cname.s_ptr, name.s_ptr, name.count)) {
+            DStatic value = DS_VIEW(name_end + 1, 0, curr_cookie.count - ((size_t)len + 1));
+            return (CookieResult){ .is_ok = true, .value = value };
+        }
+    }
+    
+    return (CookieResult){ .is_ok = false, .err = MCFW_NOT_FOUND };
 }

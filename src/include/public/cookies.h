@@ -55,4 +55,8 @@ typedef struct __MCFW_HTTP_RESPONSE__ HttpResponse;
 
 bool cookie_set(HttpResponse* res, DStatic name, DStatic value, CookieSettings cs);
 
+make_result(DStatic, Cookie);
+
+CookieResult cookie_get(const HttpRequest* req, DStatic name);
+
 #endif // PUBLIC_COOKIES_H_
